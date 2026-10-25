@@ -1,0 +1,206 @@
+package postgres
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/medinetcore/aud/internal/audit/domain"
+	"github.com/medinetcore/aud/internal/audit/ports"
+)
+
+// chainLockKey identifies the transaction-level advisory lock that serializes every append,
+// so two writers (even in different processes) never read the same tail.
+const chainLockKey int64 = 0x4155445f43484149 // "AUD_CHAI" in ASCII
+
+// recordColumns selects a row in the exact text forms the hash was computed over:
+// host() drops the /32 or /128 netmask and payload::text is the jsonb normalized output.
+const recordColumns = `id, event_id::text, client_id, source_module, event_type, severity,
+	actor_id, actor_type, target_resource, host(source_ip), user_agent,
+	occurred_at, received_at, payload::text, prev_hash, hash`
+
+const insertRecord = `INSERT INTO audit_logs (
+	event_id, client_id, source_module, event_type, severity,
+	actor_id, actor_type, target_resource, source_ip, user_agent,
+	occurred_at, received_at, payload, prev_hash, hash
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::inet, $10, $11, $12, $13::jsonb, $14, $15)`
+
+// EventStore implements ports.EventStore on the audit_logs table.
+type EventStore struct {
+	pool *pgxpool.Pool
+}
+
+var _ ports.EventStore = (*EventStore)(nil)
+
+// NewEventStore returns a store that connects with pool (as aud_app).
+func NewEventStore(pool *pgxpool.Pool) *EventStore {
+	return &EventStore{pool: pool}
+}
+
+// Append implements ports.EventStore.
+func (s *EventStore) Append(ctx context.Context, records []domain.Record) (int, error) {
+	if len(records) == 0 {
+		return 0, nil
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	if _, err := tx.Exec(ctx, "SELECT pg_advisory_xact_lock($1)", chainLockKey); err != nil {
+		return 0, fmt.Errorf("lock chain: %w", err)
+	}
+
+	prev, err := chainTail(ctx, tx)
+	if err != nil {
+		return 0, err
+	}
+	seen, err := existingEventIDs(ctx, tx, records)
+	if err != nil {
+		return 0, err
+	}
+	payloads, err := normalizePayloads(ctx, tx, records)
+	if err != nil {
+		return 0, err
+	}
+
+	batch := &pgx.Batch{}
+	for i, r := range records {
+		if seen[r.EventID] {
+			continue
+		}
+		seen[r.EventID] = true
+
+		r.Payload = []byte(payloads[i])
+		r.Seal(prev)
+		prev = r.Hash
+		batch.Queue(insertRecord,
+			r.EventID, r.ClientID, r.SourceModule, r.EventType, int16(r.Severity),
+			nullable(r.ActorID), nullable(r.ActorType), nullable(r.TargetResource), nullable(r.SourceIP), nullable(r.UserAgent),
+			r.OccurredAt, r.ReceivedAt, payloads[i], r.PrevHash[:], r.Hash[:],
+		)
+	}
+	inserted := batch.Len()
+	if inserted == 0 {
+		return 0, nil
+	}
+
+	if err := tx.SendBatch(ctx, batch).Close(); err != nil {
+		return 0, fmt.Errorf("insert records: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("commit: %w", err)
+	}
+	return inserted, nil
+}
+
+// chainTail returns the hash of the last record, or the genesis hash for an empty table.
+// The caller must hold the chain lock: ids are then assigned in chain order.
+func chainTail(ctx context.Context, tx pgx.Tx) (domain.Hash, error) {
+	var raw []byte
+	err := tx.QueryRow(ctx, "SELECT hash FROM audit_logs ORDER BY id DESC LIMIT 1").Scan(&raw)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.GenesisHash, nil
+	}
+	if err != nil {
+		return domain.Hash{}, fmt.Errorf("read chain tail: %w", err)
+	}
+	return toHash(raw)
+}
+
+func existingEventIDs(ctx context.Context, tx pgx.Tx, records []domain.Record) (map[string]bool, error) {
+	ids := make([]string, len(records))
+	for i, r := range records {
+		ids[i] = r.EventID
+	}
+	rows, err := tx.Query(ctx, "SELECT event_id::text FROM audit_logs WHERE event_id = ANY($1::uuid[])", ids)
+	if err != nil {
+		return nil, fmt.Errorf("find existing event ids: %w", err)
+	}
+	found, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, fmt.Errorf("find existing event ids: %w", err)
+	}
+	seen := make(map[string]bool, len(records))
+	for _, id := range found {
+		seen[id] = true
+	}
+	return seen, nil
+}
+
+// normalizePayloads returns each payload as PostgreSQL will store and print it, in input
+// order, so the hash covers exactly what a later verification reads back.
+func normalizePayloads(ctx context.Context, tx pgx.Tx, records []domain.Record) ([]string, error) {
+	in := make([]string, len(records))
+	for i, r := range records {
+		in[i] = string(r.Payload)
+	}
+	rows, err := tx.Query(ctx,
+		"SELECT p::jsonb::text FROM unnest($1::text[]) WITH ORDINALITY AS t(p, n) ORDER BY n", in)
+	if err != nil {
+		return nil, fmt.Errorf("normalize payloads: %w", err)
+	}
+	out, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, fmt.Errorf("normalize payloads: %w", err)
+	}
+	return out, nil
+}
+
+// scanRecord reads a row selected with recordColumns.
+func scanRecord(row pgx.Row) (int64, domain.Record, error) {
+	var (
+		id                                               int64
+		r                                                domain.Record
+		severity                                         int16
+		actorID, actorType, targetResource, sourceIP, ua *string
+		payload                                          string
+		prevHash, hash                                   []byte
+	)
+	err := row.Scan(&id, &r.EventID, &r.ClientID, &r.SourceModule, &r.EventType, &severity,
+		&actorID, &actorType, &targetResource, &sourceIP, &ua,
+		&r.OccurredAt, &r.ReceivedAt, &payload, &prevHash, &hash)
+	if err != nil {
+		return 0, domain.Record{}, err
+	}
+	r.Severity = domain.Severity(severity)
+	r.ActorID, r.ActorType, r.TargetResource, r.SourceIP, r.UserAgent =
+		deref(actorID), deref(actorType), deref(targetResource), deref(sourceIP), deref(ua)
+	r.Payload = []byte(payload)
+	if r.PrevHash, err = toHash(prevHash); err != nil {
+		return 0, domain.Record{}, err
+	}
+	if r.Hash, err = toHash(hash); err != nil {
+		return 0, domain.Record{}, err
+	}
+	return id, r, nil
+}
+
+func toHash(b []byte) (domain.Hash, error) {
+	var h domain.Hash
+	if len(b) != len(h) {
+		return h, fmt.Errorf("hash has %d bytes, want %d", len(b), len(h))
+	}
+	copy(h[:], b)
+	return h, nil
+}
+
+// nullable maps an absent optional field ("") to SQL NULL.
+func nullable(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}

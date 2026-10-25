@@ -20,10 +20,24 @@ curl localhost:8080/health        # {"status":"ok"}
 
 Los roles se crean **solo en el primer arranque**, con el volumen vacío. Si después cambian una contraseña en `.env`, no se aplica sola: hay que hacer `ALTER ROLE … PASSWORD …` como `postgres`, o, en desarrollo, borrar el volumen con `docker compose down -v`.
 
+## Clientes de ingesta
+
+Cada módulo emisor necesita un `client_id` y un secreto. Se crean con `audctl`, que se conecta como `aud_owner` (nunca lo usa la API):
+
+```sh
+export AUD_SECRET_KEY=$(openssl rand -base64 32)   # una sola vez; va en el .env y no se cambia
+export AUD_ADMIN_DATABASE_URL="postgres://aud_owner:<pass>@localhost:<DB_PORT>/<POSTGRES_DB>?sslmode=disable"
+go run ./cmd/audctl client create lab-service LAB   # imprime el secreto UNA vez
+go run ./cmd/audctl client disable lab-service
+```
+
+El secreto se guarda cifrado con AES-256-GCM (`api_clients.secret_enc`), ligado a su `client_id`. Si se pierde `AUD_SECRET_KEY`, hay que emitir clientes nuevos.
+
 ## Pruebas
 
 ```sh
-go test -race ./...
+go test -race ./...         # los tests de integración levantan Postgres con Docker (testcontainers)
+go test -short ./...        # solo tests unitarios
 golangci-lint run
 ```
 
