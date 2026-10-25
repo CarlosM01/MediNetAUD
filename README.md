@@ -18,6 +18,8 @@ curl localhost:8080/health        # {"status":"ok"}
 
 `migrate` corre `golang-migrate` dentro de un contenedor como `aud_owner`; acepta cualquier subcomando (`down 1`, `version`…).
 
+Los roles se crean **solo en el primer arranque**, con el volumen vacío. Si después cambian una contraseña en `.env`, no se aplica sola: hay que hacer `ALTER ROLE … PASSWORD …` como `postgres`, o, en desarrollo, borrar el volumen con `docker compose down -v`.
+
 ## Pruebas
 
 ```sh
@@ -41,5 +43,5 @@ deploy/initdb/              creación de roles al iniciar la BD
 ## Inmutabilidad de `audit_logs`
 
 1. **Permisos:** `aud_app`, el rol de la aplicación, solo tiene `INSERT` y `SELECT`.
-2. **Trigger:** rechaza `UPDATE`, `DELETE` y `TRUNCATE` incluso para el dueño.
-3. **Cadena de hashes:** cada fila guarda `hash = SHA256(prev_hash || evento)`; `UNIQUE (prev_hash)` impide bifurcarla.
+2. **Trigger:** rechaza `UPDATE`, `DELETE` y `TRUNCATE` aunque el rol tenga el permiso. El dueño (`aud_owner`) sí puede desactivarlo con `ALTER TABLE`, por eso sus credenciales nunca se usan en tiempo de ejecución.
+3. **Cadena de hashes:** cada fila guarda `hash = SHA256(prev_hash || evento)`, así que una alteración hecha por el dueño queda a la vista al verificar la cadena. `UNIQUE (prev_hash)` impide bifurcarla.
