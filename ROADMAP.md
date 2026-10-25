@@ -49,17 +49,18 @@ Etapa 0 ─► Etapa 1 ─► Etapa 2 ─┬─► Etapa 3 ─┐
 
 Los otros 11 grupos dependen de esto. Mientras no esté publicado, no pueden integrarse con ustedes.
 
-- [ ] **2.1 Esquema del evento.** Definir los campos (`event_id` UUID, `source_module`, `event_type`, `severity`, `actor_id`, `actor_type`, `target_resource`, `source_ip`, `occurred_at` en RFC 3339 y `payload`), cuáles son obligatorios y el tamaño máximo.
-- [ ] **2.2 Catálogo.** Listar los `event_type` permitidos (ej. `auth.login_failed`, `auth.account_locked`, `access.denied`, `iam.role_changed`, `data.export`…) y las severidades `INFO | LOW | MEDIUM | HIGH | CRITICAL`, con un criterio de cuándo usar cada una.
-- [ ] **2.3 Firma HMAC.** Especificar los headers:
+- [x] **2.1 Esquema del evento.** Definir los campos (`event_id` UUID, `source_module`, `event_type`, `severity`, `actor_id`, `actor_type`, `target_resource`, `source_ip`, `occurred_at` en RFC 3339 y `payload`), cuáles son obligatorios y el tamaño máximo.
+- [x] **2.2 Catálogo.** Listar los `event_type` permitidos (ej. `auth.login_failed`, `auth.account_locked`, `access.denied`, `iam.role_changed`, `data.export`…) y las severidades `INFO | LOW | MEDIUM | HIGH | CRITICAL`, con un criterio de cuándo usar cada una.
+- [x] **2.3 Firma HMAC.** Especificar los headers:
   - `X-AUD-Client-Id`
   - `X-AUD-Timestamp` (en segundos Unix)
   - `X-AUD-Signature: sha256=<hex>`, donde `<hex>` es `HMAC-SHA256(secreto, timestamp + "." + body_crudo)`
 
   Las peticiones fuera de una ventana de ±5 min se rechazan.
-- [ ] **2.4 Respuestas.** Documentar `202 Accepted` (evento encolado), `400` (inválido), `401` (firma o timestamp inválidos), `409` o `202` idempotente si el `event_id` está repetido (definir cuál), `413` (demasiado grande) y `429` (rate limit).
+- [x] **2.4 Respuestas.** Documentar `202 Accepted` (evento encolado), `400` (inválido), `401` (firma o timestamp inválidos), `202` idempotente si el `event_id` está repetido, `413` (demasiado grande) y `429` (rate limit).
 - [ ] **2.5 Publicar.** Crear `docs/CONTRATO_INGESTA.md` con un ejemplo en `curl` y un snippet de firma, más el OpenAPI de `POST /events`, y enviarlo a los grupos.
   _Listo cuando:_ los grupos confirmaron que lo recibieron y cada uno tiene su `client_id` y su secreto entregados por un canal privado.
+  _Avance:_ [`docs/CONTRATO_INGESTA.md`](docs/CONTRATO_INGESTA.md) y [`docs/openapi-ingesta.yaml`](docs/openapi-ingesta.yaml) listos; falta enviarlos y entregar las credenciales.
 
 ## Etapa 3: Ingesta
 
@@ -135,4 +136,4 @@ Los otros 11 grupos dependen de esto. Mientras no esté publicado, no pueden int
 | Fecha de entrega | Profesor | Pendiente |
 | Formato del JWT y claim de roles | Grupo 2 (IAM) | Pendiente |
 | Dominio con TLS (Caddy) o solo IP pública | Grupo | Pendiente |
-| Respuesta ante `event_id` repetido: `409` o `202` idempotente | Grupo | Pendiente |
+| Respuesta ante `event_id` repetido: `409` o `202` idempotente | Grupo | Decidido: `202` idempotente (ver `docs/CONTRATO_INGESTA.md`) |
