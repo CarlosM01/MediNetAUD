@@ -221,6 +221,10 @@ func TestStoredFormsStillVerify(t *testing.T) {
 		},
 		func(in *domain.EventInput) { in.SourceIP = "2001:DB8::0:1" },
 		func(in *domain.EventInput) { in.SourceIP = "::ffff:192.0.2.1" },
+		// IPv4-compatible range: Go prints ::102:304, PostgreSQL host() prints ::1.2.3.4.
+		func(in *domain.EventInput) { in.SourceIP = "::102:304" },
+		func(in *domain.EventInput) { in.SourceIP = "::e0a5:0" },
+		func(in *domain.EventInput) { in.Payload = []byte(`{"tiny":1e-400,"long":1.5e-16380}`) },
 		func(in *domain.EventInput) { in.SourceIP = ""; in.ActorID = ""; in.ActorType = "anonymous" },
 		func(in *domain.EventInput) { in.OccurredAt = "2026-10-25T11:03:11.999999-03:00" },
 		func(in *domain.EventInput) {

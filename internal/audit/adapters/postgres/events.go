@@ -76,7 +76,7 @@ func (s *EventStore) append(ctx context.Context, records []domain.Record) (int, 
 	if err != nil {
 		return 0, err
 	}
-	payloads, err := normalizePayloads(ctx, tx, records)
+	forms, err := normalizeForms(ctx, tx, records)
 	if err != nil {
 		return 0, err
 	}
@@ -88,13 +88,14 @@ func (s *EventStore) append(ctx context.Context, records []domain.Record) (int, 
 		}
 		seen[r.EventID] = true
 
-		r.Payload = []byte(payloads[i])
+		r.Payload = []byte(forms[i].Payload)
+		r.SourceIP = deref(forms[i].SourceIP)
 		r.Seal(prev)
 		prev = r.Hash
 		batch.Queue(insertRecord,
 			r.EventID, r.ClientID, r.SourceModule, r.EventType, int16(r.Severity),
 			nullable(r.ActorID), nullable(r.ActorType), nullable(r.TargetResource), nullable(r.SourceIP), nullable(r.UserAgent),
-			r.OccurredAt, r.ReceivedAt, payloads[i], r.PrevHash[:], r.Hash[:],
+			r.OccurredAt, r.ReceivedAt, forms[i].Payload, r.PrevHash[:], r.Hash[:],
 		)
 	}
 	inserted := batch.Len()
@@ -181,21 +182,33 @@ func existingEventIDs(ctx context.Context, tx pgx.Tx, records []domain.Record) (
 	return seen, nil
 }
 
-// normalizePayloads returns each payload as PostgreSQL will store and print it, in input
-// order, so the hash covers exactly what a later verification reads back.
-func normalizePayloads(ctx context.Context, tx pgx.Tx, records []domain.Record) ([]string, error) {
-	in := make([]string, len(records))
+// storedForm is how PostgreSQL stores and prints the columns whose text Go cannot reproduce:
+// jsonb reorders keys and respaces, and host(inet) writes ::/96 addresses as ::1.2.3.4.
+type storedForm struct {
+	Payload  string
+	SourceIP *string
+}
+
+// normalizeForms returns the stored form of each record, in input order, so the hash covers
+// exactly what a later verification reads back.
+func normalizeForms(ctx context.Context, tx pgx.Tx, records []domain.Record) ([]storedForm, error) {
+	payloads := make([]string, len(records))
+	ips := make([]*string, len(records))
 	for i, r := range records {
-		in[i] = string(r.Payload)
+		payloads[i] = string(r.Payload)
+		if r.SourceIP != "" {
+			ips[i] = &r.SourceIP
+		}
 	}
 	rows, err := tx.Query(ctx,
-		"SELECT p::jsonb::text FROM unnest($1::text[]) WITH ORDINALITY AS t(p, n) ORDER BY n", in)
+		`SELECT p::jsonb::text, host(ip::inet)
+		   FROM unnest($1::text[], $2::text[]) WITH ORDINALITY AS t(p, ip, n) ORDER BY n`, payloads, ips)
 	if err != nil {
-		return nil, fmt.Errorf("normalize payloads: %w", err)
+		return nil, fmt.Errorf("normalize records: %w", err)
 	}
-	out, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	out, err := pgx.CollectRows(rows, pgx.RowToStructByPos[storedForm])
 	if err != nil {
-		return nil, fmt.Errorf("normalize payloads: %w", err)
+		return nil, fmt.Errorf("normalize records: %w", err)
 	}
 	return out, nil
 }

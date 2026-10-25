@@ -132,6 +132,11 @@ func TestNewEventRejectsInvalidInput(t *testing.T) {
 		}, "payload"},
 		{"payload with NUL character", func(in *EventInput) { in.Payload = []byte(`{"k":"a\u0000b"}`) }, "payload"},
 		{"payload number out of range", func(in *EventInput) { in.Payload = []byte(`{"n":1e999}`) }, "payload"},
+		// PostgreSQL numeric keeps at most 16383 decimal places; ParseFloat silently underflows to 0.
+		{"payload number below the numeric scale", func(in *EventInput) { in.Payload = []byte(`{"n":1e-20000}`) }, "payload"},
+		{"payload number one digit past the numeric scale", func(in *EventInput) { in.Payload = []byte(`{"n":1.5e-16383}`) }, "payload"},
+		{"payload number with an exponent that overflows int", func(in *EventInput) { in.Payload = []byte(`{"n":1e-99999999999999999999}`) }, "payload"},
+		{"payload number with the most negative int64 exponent", func(in *EventInput) { in.Payload = []byte(`{"n":1e-9223372036854775808}`) }, "payload"},
 		{"payload nested too deep", func(in *EventInput) {
 			in.Payload = []byte(`{"k":` + strings.Repeat("[", MaxPayloadDepth) + strings.Repeat("]", MaxPayloadDepth) + `}`)
 		}, "payload"},

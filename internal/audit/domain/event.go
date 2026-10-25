@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/netip"
 	"regexp"
 	"slices"
@@ -253,9 +254,31 @@ func checkPayloadValue(v any, depth int) string {
 			return "must not contain NUL characters"
 		}
 	case json.Number:
-		if _, err := strconv.ParseFloat(v.String(), 64); err != nil {
+		if _, err := strconv.ParseFloat(v.String(), 64); err != nil || numericScale(v.String()) > maxNumericScale {
 			return "contains a number out of range"
 		}
 	}
 	return ""
+}
+
+// maxNumericScale is the most decimal places PostgreSQL numeric (and so jsonb) can store.
+// ParseFloat does not catch this: it silently underflows tiny values such as 1e-20000 to 0.
+const maxNumericScale = 16383
+
+// numericScale returns how many decimal places the JSON number n needs: the digits after the
+// point minus the exponent. An exponent too large to parse counts as out of range.
+func numericScale(n string) int {
+	mantissa, exp, hasExp := strings.Cut(strings.ToLower(n), "e")
+	scale := 0
+	if _, frac, ok := strings.Cut(mantissa, "."); ok {
+		scale = len(frac)
+	}
+	if hasExp {
+		e, err := strconv.Atoi(exp)
+		if err != nil || e < -math.MaxInt32 || e > math.MaxInt32 { // bounded so scale - e cannot overflow
+			return math.MaxInt
+		}
+		scale -= e
+	}
+	return scale
 }
