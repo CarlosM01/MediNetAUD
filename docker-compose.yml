@@ -1,0 +1,37 @@
+# Local development stack. Every value comes from .env (see .env.example).
+services:
+  db:
+    image: postgres:17.6-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+      AUD_OWNER_PASSWORD: ${AUD_OWNER_PASSWORD:?set AUD_OWNER_PASSWORD in .env}
+      AUD_APP_PASSWORD: ${AUD_APP_PASSWORD:?set AUD_APP_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./deploy/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Runs golang-migrate as aud_owner: docker compose run --rm migrate up
+  migrate:
+    image: migrate/migrate:v4.18.3
+    profiles: ["tools"]
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./migrations:/migrations:ro
+    entrypoint:
+      - migrate
+      - -path=/migrations
+      - -database=postgres://aud_owner:${AUD_OWNER_PASSWORD}@db:5432/${POSTGRES_DB}?sslmode=disable
+
+volumes:
+  db-data:

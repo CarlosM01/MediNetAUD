@@ -1,0 +1,9 @@
+# Local secrets: only .env.example is versioned
+.env
+
+# Build output
+/bin/
+/api
+
+# Test output
+coverage.out
