@@ -1,6 +1,6 @@
 # MediNet-Core · Módulo 11 AUD
 
-Auditoría y trazabilidad de seguridad: recibe los eventos de los demás módulos y los guarda en un registro inmutable. Hoja de ruta en [ROADMAP.md](ROADMAP.md).
+Auditoría y trazabilidad de seguridad: recibe los eventos de los demás módulos y los guarda en un registro inmutable. Hoja de ruta en [ROADMAP.md](ROADMAP.md). Los módulos que envían eventos deben seguir el [contrato de ingesta](docs/CONTRATO_INGESTA.md).
 
 ## Requisitos
 
