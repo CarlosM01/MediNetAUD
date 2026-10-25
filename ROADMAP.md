@@ -64,15 +64,15 @@ Los otros 11 grupos dependen de esto. Mientras no esté publicado, no pueden int
 
 ## Etapa 3: Ingesta
 
-- [ ] **3.1 Dominio.** Crear la entidad `Event` con su constructor validado (whitelist de `source_module` y `event_type`, rango de severidad, `occurred_at` no futuro más allá de una tolerancia y tamaño de `payload`).
+- [x] **3.1 Dominio.** Crear la entidad `Event` con su constructor validado (whitelist de `source_module` y `event_type`, rango de severidad, `occurred_at` no futuro más allá de una tolerancia y tamaño de `payload`).
   _Listo cuando:_ hay tests unitarios por cada regla, con casos válidos e inválidos.
-- [ ] **3.2 Cadena de hashes.** Implementar `hash = SHA256(prev_hash || serialización canónica del evento)`.
+- [x] **3.2 Cadena de hashes.** Implementar `hash = SHA256(prev_hash || serialización canónica del evento)`.
   _Listo cuando:_ un test demuestra que cambiar cualquier campo cambia el hash.
-- [ ] **3.3 Repositorio Postgres.** Usar `pgx/v5` con consultas parametrizadas. La inserción toma el último hash y escribe dentro de una transacción con `pg_advisory_xact_lock`. Si el `event_id` ya existe, no se inserta y la cadena no avanza.
+- [x] **3.3 Repositorio Postgres.** Usar `pgx/v5` con consultas parametrizadas. La inserción toma el último hash y escribe dentro de una transacción con `pg_advisory_xact_lock`. Si el `event_id` ya existe, no se inserta y la cadena no avanza.
   _Listo cuando:_ hay un test de integración (testcontainers-go o Postgres de CI) que inserta N eventos y la cadena es válida.
-- [ ] **3.4 Middleware HMAC.** Hacer la verificación con `hmac.Equal` (comparación en tiempo constante), la ventana anti-replay y `http.MaxBytesReader`.
+- [x] **3.4 Middleware HMAC.** Hacer la verificación con `hmac.Equal` (comparación en tiempo constante), la ventana anti-replay y `http.MaxBytesReader`.
   _Listo cuando:_ hay tests de firma válida, firma inválida, timestamp viejo y body alterado.
-- [ ] **3.5 Cola asíncrona.** Usar un canal con buffer más un único writer, que mantiene el orden de la cadena. `POST /events` responde 202, `POST /events/batch` acepta hasta 100 eventos, y el *graceful shutdown* vacía la cola antes de salir. Si la cola está llena, se responde 503.
+- [x] **3.5 Cola asíncrona.** Usar un canal con buffer más un único writer, que mantiene el orden de la cadena. `POST /events` responde 202, `POST /events/batch` acepta hasta 100 eventos, y el *graceful shutdown* vacía la cola antes de salir. Si la cola está llena, se responde 503.
   _Listo cuando:_ al enviar 1.000 eventos, los 1.000 quedan en la BD, ordenados y con la cadena válida.
 
 ## Etapa 4: Consulta y Swagger
