@@ -29,3 +29,19 @@ type EventStore interface {
 	// records were inserted.
 	Append(ctx context.Context, records []domain.Record) (int, error)
 }
+
+// ErrRejectedRecord wraps store errors caused by the data itself: retrying the same records
+// fails again. Any other store error is treated as temporary.
+var ErrRejectedRecord = errors.New("record rejected by the store")
+
+// Queue errors. Both are temporary: the emitter should retry later.
+var (
+	ErrQueueFull   = errors.New("event queue is full")
+	ErrQueueClosed = errors.New("event queue is closed")
+)
+
+// Queue accepts records for asynchronous persistence.
+type Queue interface {
+	// Enqueue accepts every record or none. Records keep their order.
+	Enqueue(records []domain.Record) error
+}

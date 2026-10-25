@@ -12,9 +12,17 @@ Go 1.23 o superior, Docker con Compose y `psql`.
 cp .env.example .env              # reemplazar cada change-me
 docker compose up -d --wait db    # Postgres; crea los roles aud_owner y aud_app
 docker compose run --rm migrate up
+export DATABASE_URL="postgres://aud_app:<AUD_APP_PASSWORD>@localhost:<DB_PORT>/<POSTGRES_DB>?sslmode=disable"
+export AUD_SECRET_KEY=...         # ver "Clientes de ingesta"
 go run ./cmd/api
 curl localhost:8080/health        # {"status":"ok"}
 ```
+
+Variables de la API: `DATABASE_URL` (obligatoria, rol `aud_app`), `AUD_SECRET_KEY` (obligatoria, base64 de 32 bytes), `HTTP_ADDR` (`:8080`), `LOG_LEVEL` (`info`) y `QUEUE_CAPACITY` (`1024` envíos en espera).
+
+## Ingesta
+
+`POST /api/v1/events` y `POST /api/v1/events/batch`, firmados con HMAC, según el [contrato](docs/CONTRATO_INGESTA.md). La API valida, responde `202` y encola; un único writer guarda los eventos en orden dentro de la cadena de hashes. Si la base de datos se cae, el writer reintenta y la cola se llena: los emisores reciben `503` con `Retry-After` en vez de perder eventos. Al apagarse (`SIGTERM`) deja de aceptar peticiones y vacía la cola antes de salir.
 
 `migrate` corre `golang-migrate` dentro de un contenedor como `aud_owner`; acepta cualquier subcomando (`down 1`, `version`…).
 

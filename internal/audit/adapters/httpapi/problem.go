@@ -28,3 +28,10 @@ func writeProblem(w http.ResponseWriter, status int, detail string, fields ...do
 		Errors: fields,
 	})
 }
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}

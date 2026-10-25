@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/medinetcore/aud/internal/audit/adapters/postgres/pgtest"
 	"github.com/medinetcore/aud/internal/audit/domain"
+	"github.com/medinetcore/aud/internal/audit/ports"
 )
 
 const testClient = "iam-service"
@@ -151,6 +153,62 @@ func TestAppendSkipsDuplicatesInsideOneCall(t *testing.T) {
 		t.Fatalf("Append inserted %d, want 2", n)
 	}
 	assertValidChain(t, pool, 2)
+}
+
+func TestVerifyChainDetectsTamperingByTheOwner(t *testing.T) {
+	db := pgtest.Start(t)
+	ctx := context.Background()
+	owner := pgtest.Pool(t, db.OwnerURL)
+	if _, err := owner.Exec(ctx, `INSERT INTO api_clients (client_id, module_code, secret_enc) VALUES ($1, 'IAM', '\x00')`, testClient); err != nil {
+		t.Fatal(err)
+	}
+	store := NewEventStore(pgtest.Pool(t, db.AppURL))
+	var recs []domain.Record
+	for i := range 5 {
+		recs = append(recs, record(t, i, nil))
+	}
+	if _, err := store.Append(ctx, recs); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := store.VerifyChain(ctx)
+	if err != nil || !report.OK || report.Checked != 5 {
+		t.Fatalf("VerifyChain = %+v, %v; want 5 rows OK", report, err)
+	}
+
+	// The owner can bypass the trigger, but not the chain.
+	var victim int64
+	if err := owner.QueryRow(ctx, "SELECT id FROM audit_logs ORDER BY id OFFSET 2 LIMIT 1").Scan(&victim); err != nil {
+		t.Fatal(err)
+	}
+	for _, sql := range []string{
+		"ALTER TABLE audit_logs DISABLE TRIGGER audit_logs_no_update_delete",
+		fmt.Sprintf("UPDATE audit_logs SET severity = 0 WHERE id = %d", victim),
+		"ALTER TABLE audit_logs ENABLE TRIGGER audit_logs_no_update_delete",
+	} {
+		if _, err := owner.Exec(ctx, sql); err != nil {
+			t.Fatalf("%s: %v", sql, err)
+		}
+	}
+
+	report, err = store.VerifyChain(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.OK || report.FirstBrokenID != victim {
+		t.Fatalf("VerifyChain = %+v, want broken at id %d", report, victim)
+	}
+}
+
+func TestAppendMarksDataErrorsAsRejected(t *testing.T) {
+	store, pool := setupStore(t)
+	bad := record(t, 1, nil)
+	bad.Payload = []byte(`{"k":"\u0000"}`) // jsonb cannot store NUL; the domain normally prevents it
+	_, err := store.Append(context.Background(), []domain.Record{record(t, 0, nil), bad})
+	if !errors.Is(err, ports.ErrRejectedRecord) {
+		t.Fatalf("err = %v, want ErrRejectedRecord", err)
+	}
+	assertValidChain(t, pool, 0)
 }
 
 func TestStoredFormsStillVerify(t *testing.T) {

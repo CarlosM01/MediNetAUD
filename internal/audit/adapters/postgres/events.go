@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/medinetcore/aud/internal/audit/domain"
@@ -40,8 +42,18 @@ func NewEventStore(pool *pgxpool.Pool) *EventStore {
 	return &EventStore{pool: pool}
 }
 
-// Append implements ports.EventStore.
+// Append implements ports.EventStore. Errors caused by the data (SQLSTATE classes 22 and 23)
+// wrap ports.ErrRejectedRecord.
 func (s *EventStore) Append(ctx context.Context, records []domain.Record) (int, error) {
+	n, err := s.append(ctx, records)
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && (strings.HasPrefix(pgErr.Code, "22") || strings.HasPrefix(pgErr.Code, "23")) {
+		return 0, fmt.Errorf("%w: %w", ports.ErrRejectedRecord, err)
+	}
+	return n, err
+}
+
+func (s *EventStore) append(ctx context.Context, records []domain.Record) (int, error) {
 	if len(records) == 0 {
 		return 0, nil
 	}
@@ -97,6 +109,42 @@ func (s *EventStore) Append(ctx context.Context, records []domain.Record) (int, 
 		return 0, fmt.Errorf("commit: %w", err)
 	}
 	return inserted, nil
+}
+
+// ChainReport is the result of walking the hash chain.
+type ChainReport struct {
+	Checked       int64
+	OK            bool
+	FirstBrokenID int64 // id of the first row whose link or hash does not match; 0 when OK
+}
+
+// VerifyChain walks every record in id order, checking that each prev_hash points to the
+// previous record and that each hash matches the stored columns.
+func (s *EventStore) VerifyChain(ctx context.Context) (ChainReport, error) {
+	rows, err := s.pool.Query(ctx, "SELECT "+recordColumns+" FROM audit_logs ORDER BY id")
+	if err != nil {
+		return ChainReport{}, fmt.Errorf("read chain: %w", err)
+	}
+	defer rows.Close()
+
+	report := ChainReport{OK: true}
+	prev := domain.GenesisHash
+	for rows.Next() {
+		id, r, err := scanRecord(rows)
+		if err != nil {
+			return ChainReport{}, fmt.Errorf("read chain: %w", err)
+		}
+		report.Checked++
+		if r.PrevHash != prev || r.Hash != domain.ComputeHash(r.PrevHash, r) {
+			report.OK, report.FirstBrokenID = false, id
+			return report, nil
+		}
+		prev = r.Hash
+	}
+	if err := rows.Err(); err != nil {
+		return ChainReport{}, fmt.Errorf("read chain: %w", err)
+	}
+	return report, nil
 }
 
 // chainTail returns the hash of the last record, or the genesis hash for an empty table.

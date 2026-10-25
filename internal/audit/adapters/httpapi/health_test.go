@@ -8,7 +8,7 @@ import (
 )
 
 func TestHealthReturnsOK(t *testing.T) {
-	srv := httptest.NewServer(NewRouter())
+	srv := httptest.NewServer(NewRouter(Dependencies{}))
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + "/health")
@@ -35,7 +35,7 @@ func TestHealthReturnsOK(t *testing.T) {
 }
 
 func TestHealthRejectsOtherMethods(t *testing.T) {
-	srv := httptest.NewServer(NewRouter())
+	srv := httptest.NewServer(NewRouter(Dependencies{}))
 	defer srv.Close()
 
 	resp, err := http.Post(srv.URL+"/health", "application/json", nil)
