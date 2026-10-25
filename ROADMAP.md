@@ -34,11 +34,11 @@ Etapa 0 ─► Etapa 1 ─► Etapa 2 ─┬─► Etapa 3 ─┐
 
 ## Etapa 1: Esqueleto del proyecto
 
-- [ ] **1.1 Estructura.** Correr `go mod init` y crear las carpetas `cmd/api`, `internal/audit/{domain,application,ports,adapters/{http,postgres,queue}}` y `migrations`. El `main.go` lee la config desde variables de entorno y expone `GET /health`.
+- [x] **1.1 Estructura.** Correr `go mod init` y crear las carpetas `cmd/api`, `internal/audit/{domain,application,ports,adapters/{http,postgres,queue}}` y `migrations`. El `main.go` lee la config desde variables de entorno y expone `GET /health`.
   _Listo cuando:_ `go run ./cmd/api` y `curl localhost:8080/health` devuelven 200.
-- [ ] **1.2 Postgres local.** Crear un `docker-compose.yml` con el servicio `db`, un `.env.example` versionado y agregar `.env` al `.gitignore`.
+- [x] **1.2 Postgres local.** Crear un `docker-compose.yml` con el servicio `db`, un `.env.example` versionado y agregar `.env` al `.gitignore`.
   _Listo cuando:_ `docker compose up db` levanta y `psql` conecta usando solo los valores del `.env`.
-- [ ] **1.3 Primera migración.** Crear la tabla `audit_logs`, con los índices y la cadena de hashes definidos en el plan, y la tabla `api_clients`. Crear también los roles `aud_owner` (dueño, corre migraciones) y `aud_app` (solo `INSERT` y `SELECT`), y el trigger `BEFORE UPDATE OR DELETE` que lanza una excepción.
+- [x] **1.3 Primera migración.** Crear la tabla `audit_logs`, con los índices y la cadena de hashes definidos en el plan, y la tabla `api_clients`. Crear también los roles `aud_owner` (dueño, corre migraciones) y `aud_app` (solo `INSERT` y `SELECT`), y el trigger `BEFORE UPDATE OR DELETE` que lanza una excepción.
   _Listo cuando:_ `migrate up` y `migrate down` funcionan, y un `UPDATE` hecho como `aud_app` falla.
 - [ ] **1.4 CI mínimo.** Crear `.github/workflows/ci.yml` con `golangci-lint` y `go test ./...` en cada push y PR. Va temprano para que todo lo que venga después ya esté chequeado.
   _Listo cuando:_ un PR muestra el check en verde.
