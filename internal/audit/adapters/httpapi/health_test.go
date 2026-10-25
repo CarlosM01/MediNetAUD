@@ -15,7 +15,7 @@ func TestHealthReturnsOK(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET /health: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
@@ -42,7 +42,7 @@ func TestHealthRejectsOtherMethods(t *testing.T) {
 	if err != nil {
 		t.Fatalf("POST /health: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusMethodNotAllowed {
 		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusMethodNotAllowed)
