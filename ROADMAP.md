@@ -27,6 +27,7 @@ Etapa 0 ─► Etapa 1 ─► Etapa 2 ─┬─► Etapa 3 ─┐
   _Listo cuando:_ cada etapa tiene una fecha objetivo escrita en este archivo.
 - [ ] **0.2 Repositorio.** Crear el repo en GitHub, proteger `main` (PR obligatorio, 1 aprobación y CI en verde) y acordar Conventional Commits (`feat:`, `fix:`, `test:`, `docs:`…).
   _Listo cuando:_ un push directo a `main` es rechazado.
+  _Avance:_ el repo existe en GitHub (`CarlosM01/MediNetAUD`) y los commits siguen Conventional Commits; falta confirmar la protección de `main`.
 - [ ] **0.3 Herramientas.** Instalar Go 1.26 o superior, Docker con Compose, `golangci-lint`, `migrate` (golang-migrate) y `psql`.
   _Listo cuando:_ `go version`, `docker compose version` y `migrate -version` responden en todos los equipos de desarrollo.
 - [ ] **0.4 Coordinación con IAM (Grupo 2).** Acordar el formato del JWT: algoritmo (ideal RS256), dónde publican la clave pública (JWKS o archivo) y el claim de roles (ej. `roles: ["auditor"]`).
@@ -42,6 +43,7 @@ Etapa 0 ─► Etapa 1 ─► Etapa 2 ─┬─► Etapa 3 ─┐
   _Listo cuando:_ `migrate up` y `migrate down` funcionan, y un `UPDATE` hecho como `aud_app` falla.
 - [ ] **1.4 CI mínimo.** Crear `.github/workflows/ci.yml` con `golangci-lint` y `go test ./...` en cada push y PR. Va temprano para que todo lo que venga después ya esté chequeado.
   _Listo cuando:_ un PR muestra el check en verde.
+  _Avance:_ `ci.yml` corre `golangci-lint` y `go test -race ./...` en cada push y PR (desde la Etapa 5, también los escáneres y la imagen); falta abrir un PR y verlo en verde.
 
 > **Corrección al plan:** `api_clients` **no** puede guardar un *hash* del secreto. Para verificar una firma HMAC, el servidor necesita el secreto original. Hay que guardarlo cifrado (`secret_enc`, con AES-GCM y la llave en el `.env`) o cargarlo desde variables de entorno.
 
@@ -110,8 +112,11 @@ Los otros 11 grupos dependen de esto. Mientras no esté publicado, no pueden int
 ## Etapa 6: Endurecimiento y pruebas de seguridad
 
 - [ ] **6.1 Inmutabilidad.** Tests que demuestren que `UPDATE`, `DELETE` y `TRUNCATE` como `aud_app` fallan, y que una alteración hecha como `aud_owner` es detectada por `/integrity/verify`.
-- [ ] **6.2 Rechazos.** Tests de HMAC inválido, replay, payload de más de 64 KB, `event_type` fuera del catálogo y JWT manipulado (incluido `alg: none`).
+  _Avance:_ la detección ya está probada contra Postgres real (`TestVerifyChainDetectsTamperingByTheOwner` y `TestVerifyChainRange`, con `UPDATE` y `DELETE` como `aud_owner`); faltan los tests de `UPDATE`, `DELETE` y `TRUNCATE` como `aud_app`.
+- [x] **6.2 Rechazos.** Tests de HMAC inválido, replay, payload de más de 64 KB, `event_type` fuera del catálogo y JWT manipulado (incluido `alg: none`).
+  _Hecho con tests existentes:_ `TestSignatureRejections` (firma inválida, body alterado, timestamp viejo o futuro), `TestBodyOverTheLimitIsRejected` (64 KB → 413), `TestNewEventRejectsInvalidInput` (`event_type` fuera del catálogo) y `TestVerifyRejectsInvalidTokens` (payload alterado, otra llave, `alg: none`, HS256 con la clave pública).
 - [ ] **6.3 Defensas transversales.** Rate limit por cliente e IP, timeouts del servidor HTTP (`ReadHeaderTimeout` y otros), errores sin stack traces y logs propios en JSON (`slog`) sin datos sensibles.
+  _Avance:_ ya hay timeouts del servidor (`ReadHeaderTimeout`, `ReadTimeout`, `WriteTimeout`, `IdleTimeout` en `cmd/api/main.go`), logs JSON con `slog` y errores RFC 7807; falta el rate limit y revisar que ningún log incluya datos sensibles.
 - [ ] **6.4 Prueba end-to-end en EC2.** Correr los 8 pasos de "Verificación end-to-end" del plan contra la URL pública.
   _Listo cuando:_ los 8 pasos pasan, con capturas guardadas para el informe.
 
