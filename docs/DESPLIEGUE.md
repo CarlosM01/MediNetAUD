@@ -95,7 +95,7 @@ Las credenciales de AWS solo necesitan este permiso:
 
 En AWS Academy no se pueden crear usuarios IAM. Ahí se usan las credenciales temporales de *AWS Details* (las tres), y hay que actualizarlas en GitHub cada vez que se inicia el laboratorio.
 
-La imagen en GHCR es privada por defecto. El CD inicia sesión con el `GITHUB_TOKEN` del job solo durante el `pull`. Para correr `audctl` a mano en el servidor, hagan `docker login ghcr.io` con un token personal con permiso `read:packages`.
+La imagen en GHCR es privada por defecto. El CD inicia sesión con el `GITHUB_TOKEN` del job durante su sesión SSH (`pull`, migraciones y reinicio) y cierra la sesión al terminar. Para correr `audctl` a mano en el servidor, hagan `docker login ghcr.io` con un token personal con permiso `read:packages`.
 
 ## 5. Primer despliegue y verificación
 

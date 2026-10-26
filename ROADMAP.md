@@ -159,7 +159,7 @@ Decisiones que el código solo no explica. Antes de "arreglar" algo de esta list
 
 ### Etapa 4: Consulta y Swagger
 
-- `huma` corre con `humago` sobre el mismo `ServeMux`. Quedó en v2.35.0, la última compatible con Go 1.23.
+- `huma` corre con `humago` sobre el mismo `ServeMux`. Quedó en v2.35.0 (se fijó por Go 1.23); con Go 1.26 se puede subir cuando haga falta.
 - Los errores de huma se convierten al mismo formato RFC 7807 del contrato, y el 422 de huma se responde como 400.
 - JWT con `golang-jwt/jwt/v5` v5.3.1 y `WithValidMethods(["RS256"])`, para rechazar `alg: none` y la confusión HS256 con clave pública. Formato provisorio hasta acordarlo con IAM (0.4): clave pública en un archivo PEM, roles en el claim `roles: [...]` y `iss`/`aud` opcionales. Token ausente o inválido → 401; token válido sin el rol → 403.
 - El *issuer stub* local es `audctl jwt keygen|mint`.
@@ -180,7 +180,7 @@ Decisiones que el código solo no explica. Antes de "arreglar" algo de esta list
 - Las *actions* están fijadas por SHA, con la versión en un comentario. No se usan *actions* de terceros para Docker ni para `trivy`: el CLI de Docker alcanza.
 - **Imágenes en GHCR:** `ghcr.io/<repo en minúsculas>:<sha>` y `:audctl-<sha>` en cada push; además `:latest` y `:audctl-latest` en `main`. Los PR solo construyen y escanean.
 - **SSH del CD:** el 22 solo admite las IPs del grupo, y los runners de GitHub cambian de IP. Por eso el job `deploy` agrega la IP de su runner al Security Group, hace el SSH y la quita al final, aunque el job falle. Las credenciales de AWS solo tienen permiso para eso. La rúbrica no exige SSH; esta forma cumple a la vez 5.5 y 5.6.
-- El CD copia solo `docker-compose.yml`, `deploy/` y `migrations/`: el servidor no tiene el código. El token de GHCR viaja por stdin y se borra después del `pull`. La llave del host va fijada en `EC2_KNOWN_HOSTS`, no se acepta la primera que aparezca.
+- El CD copia solo `docker-compose.yml`, `deploy/` y `migrations/`: el servidor no tiene el código. El token de GHCR viaja por stdin y se borra al final de la sesión SSH del despliegue. La llave del host va fijada en `EC2_KNOWN_HOSTS`, no se acepta la primera que aparezca.
 
 ### Pendientes conocidos
 

@@ -90,6 +90,8 @@ jobs:
     needs: image
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.EC2_HOST != ''
     runs-on: ubuntu-latest
+    # Bounds how long the temporary port-22 rule can stay open if a step hangs.
+    timeout-minutes: 15
     environment: production
     concurrency:
       group: deploy-production

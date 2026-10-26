@@ -31,13 +31,12 @@ func runJWT(args []string, stdout io.Writer) error {
 }
 
 // jwtKeygen writes a new key pair into dir, creating it if needed. It never overwrites
-// existing files and leaves no half-written pair behind.
-//
-// #nosec G304 G703 -- the operator chooses dir on their own machine.
+// existing files and leaves no half-written pair behind. The operator chooses dir on their own
+// machine, hence the #nosec annotations on its file operations.
 func jwtKeygen(dir string, stdout io.Writer) error {
 	privPath, pubPath := filepath.Join(dir, privateKeyFile), filepath.Join(dir, publicKeyFile)
 	for _, p := range []string{privPath, pubPath} {
-		if _, err := os.Lstat(p); err == nil {
+		if _, err := os.Lstat(p); err == nil { // #nosec G703
 			return fmt.Errorf("%s already exists", p)
 		}
 	}
@@ -45,25 +44,24 @@ func jwtKeygen(dir string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil { // #nosec G703
 		return err
 	}
 	if err := writeNew(privPath, privPEM, 0o600); err != nil {
 		return err
 	}
 	if err := writeNew(pubPath, pubPEM, 0o644); err != nil {
-		_ = os.Remove(privPath)
+		_ = os.Remove(privPath) // #nosec G703
 		return err
 	}
 	_, err = fmt.Fprintf(stdout, "private key: %s (keep it private)\npublic key:  %s (AUD_JWT_PUBLIC_KEY_FILE)\n", privPath, pubPath)
 	return err
 }
 
-// writeNew creates path with data. It fails if path exists and removes a partial file.
-//
-// #nosec G304 G703 -- path comes from jwtKeygen, chosen by the operator.
+// writeNew creates path with data. It fails if path exists and removes a partial file. path
+// comes from jwtKeygen, hence the #nosec annotations.
 func writeNew(path string, data []byte, perm os.FileMode) error {
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm) // #nosec G304 G703
 	if err != nil {
 		return err
 	}
@@ -72,7 +70,7 @@ func writeNew(path string, data []byte, perm os.FileMode) error {
 		err = cerr
 	}
 	if err != nil {
-		_ = os.Remove(path)
+		_ = os.Remove(path) // #nosec G703
 	}
 	return err
 }
