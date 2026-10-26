@@ -87,7 +87,7 @@ Los otros 11 grupos dependen de esto. Mientras no esté publicado, no pueden int
 - [x] **4.5 `GET /integrity/verify`.** Solo para `admin`. Recorre la cadena en un rango y devuelve `ok` o el primer id donde se rompe.
 - [ ] **4.6 Swagger completo** (huma v2 en `/docs`): cada endpoint con descripción, parámetros, esquemas, ejemplos, **todos** los códigos de respuesta y los *security schemes* (HMAC y Bearer). Los errores van en formato RFC 7807.
   _Listo cuando:_ alguien de otro grupo puede usar la API solo con `/docs`.
-  _Avance:_ `/docs` (Swagger UI sobre `/openapi.json`) documenta ingesta, consulta y `/health` con ambos *security schemes*, todos los códigos y ejemplos, y pasa el linter de Redocly; falta que alguien de otro grupo lo pruebe.
+  _Avance:_ `/docs` (Swagger UI sobre `/openapi.json`) documenta ingesta, consulta y `/health` con ambos *security schemes*, todos los códigos y un ejemplo en cada parámetro, cuerpo y respuesta (un test lo exige), y pasa el linter de Redocly; falta que alguien de otro grupo lo pruebe.
 
 ## Etapa 5: Contenedores, CI/CD y AWS
 
@@ -167,7 +167,6 @@ Decisiones que el código solo no explica. Antes de "arreglar" algo de esta list
 
 ### Pendientes conocidos
 
-- Etapa 4: falta una verificación independiente de la autenticación JWT antes de marcar los pasos 4.1 a 4.6.
 - Si la BD se cae, la búsqueda del cliente falla primero y los emisores reciben 500 (reintentable según el contrato), no el 503 que promete el README. Se resuelve en 6.3 con un caché o timeout, o corrigiendo el README.
 - La capacidad de la cola cuenta envíos, no eventos. Un error permanente no clasificado bloquea la cola. El apagado comparte un único plazo de 15 s.
 - Las actions de CI están fijadas por tag y no por SHA (queda para 5.3).
