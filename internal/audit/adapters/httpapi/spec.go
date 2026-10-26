@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"gopkg.in/yaml.v3"
@@ -96,7 +97,8 @@ func pruneSchemas(doc map[string]any) error {
 }
 
 // documentQueryErrors finishes the huma operations: it drops 422 (validation errors are
-// answered with 400), adds an example to every error and the challenge header to 401.
+// answered with 400), adds an example to the 200 response and to every error, and the
+// challenge header to 401.
 func documentQueryErrors(oapi *huma.OpenAPI) {
 	for _, item := range oapi.Paths {
 		op := item.Get
@@ -104,6 +106,9 @@ func documentQueryErrors(oapi *huma.OpenAPI) {
 			continue
 		}
 		delete(op.Responses, "422")
+		if mt := op.Responses["200"].Content["application/json"]; mt != nil {
+			mt.Examples = successExamples[op.OperationID]
+		}
 		roles, _ := op.Metadata[metaRoles].([]string)
 		for code, resp := range op.Responses {
 			if mt := resp.Content["application/problem+json"]; mt != nil {
@@ -121,6 +126,55 @@ func documentQueryErrors(oapi *huma.OpenAPI) {
 			resp.Description = "Valid token without the required role (" + strings.Join(roles, " or ") + ")."
 		}
 	}
+}
+
+// exampleEvent is the stored form of the LoginFailed example of the ingest contract.
+var exampleEvent = eventView{
+	ID:           1042,
+	EventID:      "0192f3a4-7b1c-7d2e-9f10-3a4b5c6d7e8f",
+	ClientID:     "iam-service",
+	SourceModule: "IAM",
+	EventType:    "auth.login_failed",
+	Severity:     "LOW",
+	ActorID:      "user-1042",
+	ActorType:    "user",
+	SourceIP:     "203.0.113.24",
+	OccurredAt:   time.Date(2026, 10, 25, 14, 3, 11, 0, time.UTC),
+	ReceivedAt:   time.Date(2026, 10, 25, 14, 3, 11, 482915000, time.UTC),
+	Payload:      map[string]any{"reason": "invalid_password", "attempt": 3},
+	PrevHash:     "84fd9bac333ad79154348296204fa7f8c537a96e08983e5f73b3f5aca8e8edf7",
+	Hash:         "d04b98f48e8f8bcc15c6ae5ac050801cd6dcfd428fb5f9e65c4e16e7807340fa",
+}
+
+// exampleCursor is the next_cursor that follows exampleEvent.
+const exampleCursor = "MTc5MjkzNjk5MTAwMDAwMC4xMDQy"
+
+// successExamples are the 200 examples of the query operations, by operationId.
+var successExamples = map[string]map[string]*huma.Example{
+	"getEvent": {"loginFailed": {Summary: "Failed login reported by IAM", Value: exampleEvent}},
+	"listEvents": {
+		"nextPage": {
+			Summary: "A page with more events: pass next_cursor as cursor",
+			Value:   eventListBody{Items: []eventView{exampleEvent}, NextCursor: exampleCursor},
+		},
+		"lastPage": {Summary: "The last page, or no matches", Value: eventListBody{Items: []eventView{}}},
+	},
+	"getSuspiciousStats": {"report": {Summary: "One day of activity", Value: statsBody{
+		From:                time.Date(2026, 10, 25, 0, 0, 0, 0, time.UTC),
+		To:                  time.Date(2026, 10, 25, 23, 59, 59, 0, time.UTC),
+		FailedLoginsPerHour: []hourCount{{Hour: time.Date(2026, 10, 25, 14, 0, 0, 0, time.UTC), Count: 3}},
+		DeniedByActor:       []actorCount{{ActorID: "user-77", Count: 5}, {Count: 1}},
+		TopIPs:              []ipCount{{SourceIP: "203.0.113.5", Count: 4}},
+	}}},
+	"verifyIntegrity": {
+		"ok": {Summary: "Every row matches", Value: verifyBody{
+			Status: "ok", Checked: 5000, FromID: 1, ToID: 5000, LastID: 5000,
+			LastHash: "3547cb112ac4489af2310c0626cdba6f3097a2ad5a3b42ddd3b59c76c7a079a3",
+		}},
+		"broken": {Summary: "Row 1042 was altered or the row before it was deleted", Value: verifyBody{
+			Status: "broken", Checked: 1042, FromID: 1, ToID: 5000, FirstBrokenID: 1042,
+		}},
+	},
 }
 
 func exampleProblem(code string, op *huma.Operation, roles []string) problem {

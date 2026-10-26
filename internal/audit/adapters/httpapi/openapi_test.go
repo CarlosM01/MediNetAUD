@@ -141,6 +141,58 @@ func TestOpenAPIErrorsAreProblemDetails(t *testing.T) {
 	}
 }
 
+// TestOpenAPIEveryOperationHasExamples checks that /docs can show a ready-to-use value for every
+// parameter, request body and response, so a consumer does not have to guess the format.
+func TestOpenAPIEveryOperationHasExamples(t *testing.T) {
+	_, raw := fetchSpec(t)
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(raw), &doc); err != nil {
+		t.Fatal(err)
+	}
+	resolve := func(v any) map[string]any {
+		m, _ := v.(map[string]any)
+		for m["$ref"] != nil {
+			var target any = doc
+			for _, part := range strings.Split(strings.TrimPrefix(m["$ref"].(string), "#/"), "/") {
+				target = target.(map[string]any)[part]
+			}
+			m, _ = target.(map[string]any)
+		}
+		return m
+	}
+	hasExample := func(m map[string]any) bool {
+		return m["example"] != nil || m["examples"] != nil
+	}
+	checkContent := func(where string, content any) {
+		for mediaType, media := range resolve(content) {
+			if !hasExample(resolve(media)) {
+				t.Errorf("%s %s: no example", where, mediaType)
+			}
+		}
+	}
+
+	for path, item := range resolve(doc["paths"]) {
+		for method, rawOp := range resolve(item) {
+			op := resolve(rawOp)
+			where := method + " " + path
+			params, _ := op["parameters"].([]any)
+			for _, rawParam := range params {
+				p := resolve(rawParam)
+				schema := resolve(p["schema"])
+				if !hasExample(p) && !hasExample(schema) && schema["enum"] == nil && schema["default"] == nil {
+					t.Errorf("%s parameter %v: no example, enum or default", where, p["name"])
+				}
+			}
+			if body := resolve(op["requestBody"]); body != nil {
+				checkContent(where+" request body", body["content"])
+			}
+			for code, resp := range resolve(op["responses"]) {
+				checkContent(where+" "+code, resolve(resp)["content"])
+			}
+		}
+	}
+}
+
 func TestOpenAPIServedAsYAML(t *testing.T) {
 	rec := get(t, newQueryRouter(&fakeReader{}), "/openapi.yaml", "")
 	if rec.Code != http.StatusOK {

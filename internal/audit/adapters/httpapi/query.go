@@ -124,7 +124,7 @@ type listEventsInput struct {
 	ActorID      string            `query:"actor_id" maxLength:"128" doc:"Exact actor_id." example:"user-77"`
 	From         time.Time         `query:"from" doc:"Start of the range on occurred_at, inclusive (RFC 3339). Default: to minus 7 days." example:"2026-10-20T00:00:00Z"`
 	To           time.Time         `query:"to" doc:"End of the range on occurred_at, inclusive (RFC 3339). Default: now. The range may span at most 31 days." example:"2026-10-25T23:59:59Z"`
-	Cursor       string            `query:"cursor" maxLength:"64" doc:"next_cursor of the previous page."`
+	Cursor       string            `query:"cursor" maxLength:"64" doc:"next_cursor of the previous page." example:"MTc5MjkzNjk5MTAwMDAwMC4xMDQy"`
 	Limit        int               `query:"limit" minimum:"1" maximum:"100" default:"50" doc:"Events per page."`
 }
 

@@ -79,6 +79,29 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/EventBatch'
+            example:
+              events:
+                - event_id: 0192f3a4-7b1c-7d2e-9f10-3a4b5c6d7e8f
+                  source_module: IAM
+                  event_type: auth.login_failed
+                  severity: LOW
+                  actor_id: user-1042
+                  actor_type: user
+                  source_ip: 203.0.113.24
+                  occurred_at: '2026-10-25T14:03:11Z'
+                  payload:
+                    reason: invalid_password
+                    attempt: 3
+                - event_id: 0192f3a4-7b1c-7d2e-9f10-3a4b5c6d7e90
+                  source_module: IAM
+                  event_type: auth.account_locked
+                  severity: MEDIUM
+                  actor_id: user-1042
+                  actor_type: user
+                  source_ip: 203.0.113.24
+                  occurred_at: '2026-10-25T14:03:12Z'
+                  payload:
+                    failed_attempts: 5
       responses:
         '202':
           description: Every event in the batch was queued or discarded as a duplicate.
