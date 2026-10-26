@@ -167,7 +167,6 @@ Decisiones que el código solo no explica. Antes de "arreglar" algo de esta list
 
 ### Pendientes conocidos
 
-- `.env.example` no trae `DATABASE_URL`, `AUD_SECRET_KEY` ni las variables `AUD_JWT_*`.
 - Etapa 4: falta una verificación independiente de la autenticación JWT antes de marcar los pasos 4.1 a 4.6.
 - Si la BD se cae, la búsqueda del cliente falla primero y los emisores reciben 500 (reintentable según el contrato), no el 503 que promete el README. Se resuelve en 6.3 con un caché o timeout, o corrigiendo el README.
 - La capacidad de la cola cuenta envíos, no eventos. Un error permanente no clasificado bloquea la cola. El apagado comparte un único plazo de 15 s.
