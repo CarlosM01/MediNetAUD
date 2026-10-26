@@ -193,6 +193,10 @@ Decisiones que el código solo no explica. Antes de "arreglar" algo de esta list
 - La capacidad de la cola cuenta envíos, no eventos. Un error permanente no clasificado bloquea la cola. El apagado comparte un único plazo de 15 s.
 - El CD no hace *rollback*: si `up --wait` falla, el job falla pero el contenedor nuevo queda en marcha. Para volver atrás, hay que poner el SHA anterior en `AUD_TAG` del `.env` del servidor y hacer `docker compose up -d api`. Si falla la migración, la API no se reinicia.
 - `trivy` descarga su base de vulnerabilidades en cada corrida, sin caché. Si el límite de descargas lo hace fallar, se puede cachear con `actions/cache`.
+- `trivy` también falla con CVE HIGH o CRITICAL que aún no tienen parche (así lo pide 5.3). Si aparece uno en `alpine`, bloquea `image` y `deploy` hasta que salga el parche. La salida es un `.trivyignore` con el CVE y el motivo.
+- Si un job de `deploy` muere a la mitad, puede quedar una regla `ci-deploy-*` abierta en el puerto 22 del Security Group. Hay que borrarla a mano (ver `docs/DESPLIEGUE.md`).
+- `docker-compose.yml` publica `API_PORT` en todas las interfaces, también en desarrollo. No hay un problema concreto, porque la API exige HMAC o JWT, pero en una red compartida conviene `127.0.0.1` en el *override* de desarrollo.
+- `.env.example` no tiene `AUD_IMAGE`, `AUD_TAG`, `API_PORT` ni la nota de `COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml` para desarrollo. Hay que agregarlos a mano.
 
 ## Decisiones pendientes
 
@@ -200,5 +204,8 @@ Decisiones que el código solo no explica. Antes de "arreglar" algo de esta list
 |---|---|---|
 | Fecha de entrega | Profesor | Pendiente |
 | Formato del JWT y claim de roles | Grupo 2 (IAM) | Pendiente. Supuesto provisorio: RS256, llave pública en PEM, claims `sub`, `exp` y `roles` (ver README) |
-| Dominio con TLS (Caddy) o solo IP pública | Grupo | Pendiente |
+| Dominio con TLS (Caddy) o solo IP pública | Grupo | Pendiente. Hoy el despliegue expone HTTP plano en `API_PORT`, así que los JWT viajan sin cifrar; con TLS, el Security Group abre 443 en vez de `API_PORT` |
+| Cuenta de AWS: AWS Academy o propia | Grupo | Pendiente. En AWS Academy, las credenciales del CD vencen con cada laboratorio y hay que renovarlas en GitHub Secrets |
+| Versión de Go | Grupo | Decidido: Go 1.26 (1.23 ya no recibe parches; ver Etapa 5) |
+| Acceso SSH del CD con el 22 restringido | Grupo | Decidido: el job abre el 22 solo para la IP de su runner y lo cierra al terminar |
 | Respuesta ante `event_id` repetido: `409` o `202` idempotente | Grupo | Decidido: `202` idempotente (ver `docs/CONTRATO_INGESTA.md`) |
