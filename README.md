@@ -28,6 +28,12 @@ Variables de la API: `DATABASE_URL` (obligatoria, rol `aud_app`), `AUD_SECRET_KE
 
 Los roles se crean **solo en el primer arranque**, con el volumen vacío. Si después cambian una contraseña en `.env`, no se aplica sola: hay que hacer `ALTER ROLE … PASSWORD …` como `postgres`, o, en desarrollo, borrar el volumen con `docker compose down -v`.
 
+## Consulta
+
+Solo para roles `auditor` o `admin`, con `Authorization: Bearer <jwt>` (ver "Tokens de consulta"). Sin token o con uno inválido responde `401`; con un token válido sin el rol, `403`.
+
+- `GET /api/v1/events/{event_id}`: un evento, con su posición (`id`) y sus hashes. `404` si no existe y `400` si el id no es un UUID.
+
 ## Clientes de ingesta
 
 Cada módulo emisor necesita un `client_id` y un secreto. Se crean con `audctl`, que se conecta como `aud_owner` (nunca lo usa la API):

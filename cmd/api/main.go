@@ -19,6 +19,7 @@ import (
 	"github.com/medinetcore/aud/internal/audit/adapters/queue"
 	"github.com/medinetcore/aud/internal/audit/application"
 	"github.com/medinetcore/aud/internal/config"
+	"github.com/medinetcore/aud/internal/jwtauth"
 	"github.com/medinetcore/aud/internal/secretbox"
 )
 
@@ -56,14 +57,26 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	events := queue.New(postgres.NewEventStore(pool), cfg.QueueCapacity, logger)
+	store := postgres.NewEventStore(pool)
+	events := queue.New(store, cfg.QueueCapacity, logger)
+
+	deps := httpapi.Dependencies{
+		Auth:   httpapi.NewAuthenticator(postgres.NewClientStore(pool, box)),
+		Ingest: application.NewIngest(events),
+	}
+	if cfg.JWTPublicKey != nil {
+		tokens, err := jwtauth.NewVerifier(cfg.JWTPublicKey, cfg.JWTIssuer, cfg.JWTAudience)
+		if err != nil {
+			return err
+		}
+		deps.Tokens, deps.Query = tokens, application.NewQuery(store)
+	} else {
+		logger.Warn("query API disabled: AUD_JWT_PUBLIC_KEY_FILE is not set")
+	}
 
 	srv := &http.Server{
-		Addr: cfg.HTTPAddr,
-		Handler: httpapi.NewRouter(httpapi.Dependencies{
-			Auth:   httpapi.NewAuthenticator(postgres.NewClientStore(pool, box)),
-			Ingest: application.NewIngest(events),
-		}),
+		Addr:              cfg.HTTPAddr,
+		Handler:           httpapi.NewRouter(deps),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      15 * time.Second,

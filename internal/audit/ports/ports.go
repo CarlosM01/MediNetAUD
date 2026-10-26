@@ -45,3 +45,18 @@ type Queue interface {
 	// Enqueue accepts every record or none. Records keep their order.
 	Enqueue(records []domain.Record) error
 }
+
+// ErrEventNotFound means no stored event has the requested event_id.
+var ErrEventNotFound = errors.New("event not found")
+
+// StoredEvent is a record read back from the chain, with its position (audit_logs.id).
+type StoredEvent struct {
+	ID int64
+	domain.Record
+}
+
+// EventReader reads the append-only chain for the query API.
+type EventReader interface {
+	// FindEvent returns the event with eventID (a valid UUID) or ErrEventNotFound.
+	FindEvent(ctx context.Context, eventID string) (StoredEvent, error)
+}
