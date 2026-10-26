@@ -3,6 +3,7 @@ package ports
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/medinetcore/aud/internal/audit/domain"
 )
@@ -55,8 +56,28 @@ type StoredEvent struct {
 	domain.Record
 }
 
+// Cursor is a position in the listing order (occurred_at DESC, id DESC).
+type Cursor struct {
+	OccurredAt time.Time
+	ID         int64
+}
+
+// EventFilter selects events for a listing. Empty strings and nil pointers match anything.
+type EventFilter struct {
+	From, To     time.Time // inclusive bounds on occurred_at
+	EventType    string
+	SourceModule string
+	ActorID      string
+	Severity     *domain.Severity
+	After        *Cursor // only events strictly after this position
+	Limit        int
+}
+
 // EventReader reads the append-only chain for the query API.
 type EventReader interface {
 	// FindEvent returns the event with eventID (a valid UUID) or ErrEventNotFound.
 	FindEvent(ctx context.Context, eventID string) (StoredEvent, error)
+	// ListEvents returns at most f.Limit events matching f, newest first
+	// (occurred_at DESC, id DESC).
+	ListEvents(ctx context.Context, f EventFilter) ([]StoredEvent, error)
 }

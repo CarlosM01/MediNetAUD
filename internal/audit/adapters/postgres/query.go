@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -23,4 +25,55 @@ func (s *EventStore) FindEvent(ctx context.Context, eventID string) (ports.Store
 		return ports.StoredEvent{}, fmt.Errorf("find event: %w", err)
 	}
 	return ports.StoredEvent{ID: id, Record: r}, nil
+}
+
+// ListEvents implements ports.EventReader. Every value travels as a query parameter; only
+// the fixed condition texts are concatenated.
+func (s *EventStore) ListEvents(ctx context.Context, f ports.EventFilter) ([]ports.StoredEvent, error) {
+	conds := []string{"occurred_at >= $1", "occurred_at <= $2"}
+	args := []any{f.From, f.To}
+	// add appends a condition, numbering each ? placeholder after the arguments so far.
+	add := func(cond string, vals ...any) {
+		for _, v := range vals {
+			args = append(args, v)
+			cond = strings.Replace(cond, "?", "$"+strconv.Itoa(len(args)), 1)
+		}
+		conds = append(conds, cond)
+	}
+	if f.EventType != "" {
+		add("event_type = ?", f.EventType)
+	}
+	if f.SourceModule != "" {
+		add("source_module = ?", f.SourceModule)
+	}
+	if f.ActorID != "" {
+		add("actor_id = ?", f.ActorID)
+	}
+	if f.Severity != nil {
+		add("severity = ?", int16(*f.Severity))
+	}
+	if f.After != nil {
+		add("(occurred_at, id) < (?, ?)", f.After.OccurredAt, f.After.ID)
+	}
+	args = append(args, f.Limit)
+	sql := "SELECT " + recordColumns + " FROM audit_logs WHERE " + strings.Join(conds, " AND ") +
+		" ORDER BY occurred_at DESC, id DESC LIMIT $" + strconv.Itoa(len(args))
+
+	rows, err := s.pool.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list events: %w", err)
+	}
+	defer rows.Close()
+	events := []ports.StoredEvent{}
+	for rows.Next() {
+		id, r, err := scanRecord(rows)
+		if err != nil {
+			return nil, fmt.Errorf("list events: %w", err)
+		}
+		events = append(events, ports.StoredEvent{ID: id, Record: r})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list events: %w", err)
+	}
+	return events, nil
 }

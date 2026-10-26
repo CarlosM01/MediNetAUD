@@ -33,6 +33,7 @@ Los roles se crean **solo en el primer arranque**, con el volumen vacío. Si des
 Solo para roles `auditor` o `admin`, con `Authorization: Bearer <jwt>` (ver "Tokens de consulta"). Sin token o con uno inválido responde `401`; con un token válido sin el rol, `403`.
 
 - `GET /api/v1/events/{event_id}`: un evento, con su posición (`id`) y sus hashes. `404` si no existe y `400` si el id no es un UUID.
+- `GET /api/v1/events`: lista del más nuevo al más antiguo. Filtros `event_type`, `severity`, `source_module`, `actor_id`, `from` y `to` (RFC 3339, inclusivos; por defecto los últimos 7 días, máximo 31). `limit` de 1 a 100 (50 por defecto). Para la página siguiente se pasa `cursor=<next_cursor>`; en la última página no viene `next_cursor`. Un parámetro inválido responde `400` con la lista de campos en `errors`.
 
 ## Clientes de ingesta
 

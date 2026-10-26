@@ -47,9 +47,25 @@ func token(t *testing.T, roles ...string) string {
 	return tok
 }
 
-// fakeReader serves one stored event; err, when set, is returned by every call.
+// fakeReader serves one stored event; err, when set, is returned by every call. ListEvents
+// records its filter and returns n copies of the stored event.
 type fakeReader struct {
-	err error
+	err    error
+	n      int
+	filter ports.EventFilter
+}
+
+func (f *fakeReader) ListEvents(_ context.Context, filter ports.EventFilter) ([]ports.StoredEvent, error) {
+	f.filter = filter
+	if f.err != nil {
+		return nil, f.err
+	}
+	out := make([]ports.StoredEvent, min(f.n, filter.Limit))
+	for i := range out {
+		out[i] = storedEvent()
+		out[i].ID = int64(100 - i)
+	}
+	return out, nil
 }
 
 func (f *fakeReader) FindEvent(_ context.Context, eventID string) (ports.StoredEvent, error) {
@@ -266,5 +282,100 @@ func TestQueryRoutesAbsentWithoutVerifier(t *testing.T) {
 	rec := get(t, h, "/api/v1/events/"+storedEventID, token(t, jwtauth.RoleAdmin))
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404 when no token verifier is configured", rec.Code)
+	}
+}
+
+func TestListEventsPassesEveryFilter(t *testing.T) {
+	r := &fakeReader{n: 3}
+	path := "/api/v1/events?event_type=access.denied&severity=HIGH&source_module=HCE" +
+		"&actor_id=%27%20OR%201%3D1--&from=2026-10-20T00:00:00Z&to=2026-10-25T12:30:00-03:00&limit=2"
+	rec := get(t, newQueryRouter(r), path, token(t, jwtauth.RoleAuditor))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body %s", rec.Code, rec.Body)
+	}
+	f := r.filter
+	wantTo := time.Date(2026, 10, 25, 15, 30, 0, 0, time.UTC)
+	if f.EventType != "access.denied" || f.SourceModule != "HCE" || f.ActorID != "' OR 1=1--" ||
+		f.Severity == nil || *f.Severity != domain.SeverityHigh || f.Limit != 3 ||
+		!f.From.Equal(time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC)) || !f.To.Equal(wantTo) {
+		t.Errorf("filter = %+v", f)
+	}
+
+	var body struct {
+		Items      []map[string]any `json:"items"`
+		NextCursor string           `json:"next_cursor"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Items) != 2 || body.NextCursor == "" || body.Items[0]["event_id"] != storedEventID {
+		t.Fatalf("body = %+v, want 2 items and a next_cursor", body)
+	}
+
+	rec = get(t, newQueryRouter(r), "/api/v1/events?limit=2&cursor="+body.NextCursor, token(t, jwtauth.RoleAuditor))
+	if rec.Code != http.StatusOK || r.filter.After == nil || r.filter.After.ID != 99 {
+		t.Errorf("second page: status %d, After = %+v; want 200 and the position of id 99", rec.Code, r.filter.After)
+	}
+}
+
+func TestListEventsLastPageHasNoCursor(t *testing.T) {
+	rec := get(t, newQueryRouter(&fakeReader{n: 0}), "/api/v1/events", token(t, jwtauth.RoleAdmin))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if got := strings.TrimSpace(rec.Body.String()); got != `{"items":[]}` {
+		t.Errorf("body = %s, want {\"items\":[]}", got)
+	}
+}
+
+func TestListEventsRejectsInvalidParameters(t *testing.T) {
+	tests := []struct {
+		query string
+		field string
+	}{
+		{"event_type=%27%20OR%201%3D1--", "event_type"},
+		{"event_type=auth.unknown", "event_type"},
+		{"source_module=XYZ", "source_module"},
+		{"source_module=iam", "source_module"},
+		{"severity=high", "severity"},
+		{"severity=1", "severity"},
+		{"from=2026-13-01T00:00:00Z", "from"},
+		{"from=yesterday", "from"},
+		{"to=2026-10-25", "to"},
+		{"from=%27%20OR%201%3D1--", "from"},
+		{"from=2026-10-25T00:00:00Z&to=2026-10-24T00:00:00Z", "from"},
+		{"from=2026-08-01T00:00:00Z&to=2026-10-01T00:00:00Z", "to"},
+		{"limit=0", "limit"},
+		{"limit=101", "limit"},
+		{"limit=abc", "limit"},
+		{"limit=-5", "limit"},
+		{"cursor=not-a-cursor", "cursor"},
+		{"cursor=%27%20OR%201%3D1--", "cursor"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.query, func(t *testing.T) {
+			r := &fakeReader{n: 1}
+			rec := get(t, newQueryRouter(r), "/api/v1/events?"+tt.query, token(t, jwtauth.RoleAuditor))
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400; body %s", rec.Code, rec.Body)
+			}
+			p := decodeProblem(t, rec)
+			if len(p.Errors) == 0 || p.Errors[0].Field != tt.field {
+				t.Errorf("errors = %+v, want field %q", p.Errors, tt.field)
+			}
+			if r.filter.Limit != 0 {
+				t.Error("the store was queried for an invalid request")
+			}
+		})
+	}
+}
+
+func TestListEventsRequiresRole(t *testing.T) {
+	h := newQueryRouter(&fakeReader{})
+	if rec := get(t, h, "/api/v1/events", ""); rec.Code != http.StatusUnauthorized {
+		t.Errorf("no token: status = %d, want 401", rec.Code)
+	}
+	if rec := get(t, h, "/api/v1/events", token(t, "viewer")); rec.Code != http.StatusForbidden {
+		t.Errorf("no role: status = %d, want 403", rec.Code)
 	}
 }
