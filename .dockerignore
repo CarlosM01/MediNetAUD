@@ -1,0 +1,9 @@
+# Allowlist: only what the Go build needs enters the build context, so .env, secrets/ and .git
+# can never end up in an image layer.
+*
+!go.mod
+!go.sum
+!cmd/
+!docs/
+!internal/
+**/*_test.go
