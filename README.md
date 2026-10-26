@@ -4,7 +4,7 @@ Auditoría y trazabilidad de seguridad: recibe los eventos de los demás módulo
 
 ## Requisitos
 
-Go 1.23 o superior, Docker con Compose y `psql`.
+Go 1.26 o superior, Docker con Compose y `psql`.
 
 ## Desarrollo local
 

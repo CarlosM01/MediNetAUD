@@ -27,7 +27,7 @@ Etapa 0 ─► Etapa 1 ─► Etapa 2 ─┬─► Etapa 3 ─┐
   _Listo cuando:_ cada etapa tiene una fecha objetivo escrita en este archivo.
 - [ ] **0.2 Repositorio.** Crear el repo en GitHub, proteger `main` (PR obligatorio, 1 aprobación y CI en verde) y acordar Conventional Commits (`feat:`, `fix:`, `test:`, `docs:`…).
   _Listo cuando:_ un push directo a `main` es rechazado.
-- [ ] **0.3 Herramientas.** Instalar Go 1.23 o superior, Docker con Compose, `golangci-lint`, `migrate` (golang-migrate) y `psql`.
+- [ ] **0.3 Herramientas.** Instalar Go 1.26 o superior, Docker con Compose, `golangci-lint`, `migrate` (golang-migrate) y `psql`.
   _Listo cuando:_ `go version`, `docker compose version` y `migrate -version` responden en todos los equipos de desarrollo.
 - [ ] **0.4 Coordinación con IAM (Grupo 2).** Acordar el formato del JWT: algoritmo (ideal RS256), dónde publican la clave pública (JWKS o archivo) y el claim de roles (ej. `roles: ["auditor"]`).
   _Listo cuando:_ el acuerdo queda escrito, aunque sea provisorio.
@@ -91,7 +91,7 @@ Los otros 11 grupos dependen de esto. Mientras no esté publicado, no pueden int
 
 ## Etapa 5: Contenedores, CI/CD y AWS
 
-- [ ] **5.1 Dockerfile.** Multi-stage: compilar en `golang:1.23-alpine` con `CGO_ENABLED=0 -trimpath -ldflags="-s -w"`, y correr en `alpine` con un usuario `app` (uid 10001) y `USER app`. Agregar `HEALTHCHECK` y `.dockerignore`.
+- [ ] **5.1 Dockerfile.** Multi-stage: compilar en `golang:1.26-alpine` con `CGO_ENABLED=0 -trimpath -ldflags="-s -w"`, y correr en `alpine` con un usuario `app` (uid 10001) y `USER app`. Agregar `HEALTHCHECK` y `.dockerignore`.
   _Listo cuando:_ `docker run … id` muestra uid 10001 y la imagen pesa menos de 30 MB.
 - [ ] **5.2 Compose endurecido.** Separar las redes: `backend` y `db` en una red `internal: true`, con la BD **sin** puertos publicados. Usar un volumen nombrado para la BD. En la API: `read_only: true`, `cap_drop: [ALL]` y `security_opt: [no-new-privileges:true]`. Toda la config sale del `.env`.
   _Listo cuando:_ `docker compose up` deja todo sano y `grep` no encuentra credenciales en el repo.
@@ -151,11 +151,11 @@ Decisiones que el código solo no explica. Antes de "arreglar" algo de esta list
 - Antes del 202 el `payload` se re-codifica en Go (llaves ordenadas, números tal cual) y se limita a rango `float64`, profundidad 32, sin `NUL` y sin números de más de 16383 decimales. Así `jsonb` nunca rechaza un evento ya aceptado (`1e-20000` pasaba `ParseFloat` y después fallaba en la BD).
 - El secreto de cada cliente se guarda cifrado con AES-256-GCM, con el `client_id` como dato adicional.
 - Los errores de la BD de clase SQLSTATE 22/23 descartan ese evento con un log `ERROR`. Cualquier otro error se reintenta sin límite, así que la cola se llena y los emisores reciben 503.
-- Versiones fijadas para Go 1.23: `pgx v5.7.5`, `testcontainers v0.37.0`, `grpc-gateway v2.16.0`. Sin fijarlas, `go mod tidy` trae versiones que exigen Go más nuevo. `golangci-lint` v2.1.6 corre con su imagen de Docker.
+- `golangci-lint` corre con su imagen de Docker (la versión está en `.github/workflows/ci.yml`).
 
 ### Etapa 4: Consulta y Swagger
 
-- `huma v2.35.0` es la última versión compatible con Go 1.23 (2.36+ exigen Go 1.24). Corre con `humago` sobre el mismo `ServeMux`.
+- `huma` corre con `humago` sobre el mismo `ServeMux`. Quedó en v2.35.0, la última compatible con Go 1.23.
 - Los errores de huma se convierten al mismo formato RFC 7807 del contrato, y el 422 de huma se responde como 400.
 - JWT con `golang-jwt/jwt/v5` v5.3.1 y `WithValidMethods(["RS256"])`, para rechazar `alg: none` y la confusión HS256 con clave pública. Formato provisorio hasta acordarlo con IAM (0.4): clave pública en un archivo PEM, roles en el claim `roles: [...]` y `iss`/`aud` opcionales. Token ausente o inválido → 401; token válido sin el rol → 403.
 - El *issuer stub* local es `audctl jwt keygen|mint`.
@@ -164,6 +164,10 @@ Decisiones que el código solo no explica. Antes de "arreglar" algo de esta list
 - `GET /events`: el rango por defecto es de 7 días y el máximo de 31.
 - `/integrity/verify` recorre un rango de ids dentro de una transacción de solo lectura `REPEATABLE READ`, y enlaza la primera fila con la fila guardada anterior.
 - Hay un único OpenAPI 3.1 en `/openapi.json` y `/openapi.yaml`: junta las operaciones de huma con `docs/openapi-ingesta.yaml`, que es la fuente de la ingesta. Swagger UI 5.17.14 se sirve en `/docs` con SRI.
+
+### Etapa 5: Contenedores, CI/CD y AWS
+
+- **Go 1.26 en vez de 1.23.** Go 1.23 dejó de recibir parches en agosto de 2025, y `govulncheck` encontró 13 vulnerabilidades alcanzables (entre ellas GO-2026-5004, una inyección SQL en `pgx`). Las versiones corregidas de `pgx` y `golang.org/x/*` exigen Go 1.26. Con 1.23, el escaneo de 5.3 no podía quedar en verde.
 
 ### Pendientes conocidos
 
