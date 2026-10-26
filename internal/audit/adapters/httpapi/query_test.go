@@ -78,6 +78,18 @@ func (f *fakeReader) FindEvent(_ context.Context, eventID string) (ports.StoredE
 	return storedEvent(), nil
 }
 
+func (f *fakeReader) SuspiciousStats(_ context.Context, from, to time.Time, top int) (ports.SuspiciousStats, error) {
+	f.filter = ports.EventFilter{From: from, To: to, Limit: top}
+	if f.err != nil {
+		return ports.SuspiciousStats{}, f.err
+	}
+	return ports.SuspiciousStats{
+		FailedLoginsPerHour: []ports.HourCount{{Hour: time.Date(2026, 10, 25, 10, 0, 0, 0, time.UTC), Count: 3}},
+		DeniedByActor:       []ports.ActorCount{{ActorID: "user-a", Count: 3}, {ActorID: "", Count: 2}},
+		TopIPs:              []ports.IPCount{{IP: "203.0.113.5", Count: 3}},
+	}, nil
+}
+
 func storedEvent() ports.StoredEvent {
 	occurred := time.Date(2026, 10, 25, 14, 3, 11, 123456000, time.UTC)
 	r := domain.Record{
@@ -377,5 +389,50 @@ func TestListEventsRequiresRole(t *testing.T) {
 	}
 	if rec := get(t, h, "/api/v1/events", token(t, "viewer")); rec.Code != http.StatusForbidden {
 		t.Errorf("no role: status = %d, want 403", rec.Code)
+	}
+}
+
+func TestSuspiciousStatsResponse(t *testing.T) {
+	r := &fakeReader{}
+	rec := get(t, newQueryRouter(r), "/api/v1/stats/suspicious?from=2026-10-25T10:00:00Z&to=2026-10-25T13:00:00Z", token(t, jwtauth.RoleAuditor))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body %s", rec.Code, rec.Body)
+	}
+	want := `{"from":"2026-10-25T10:00:00Z","to":"2026-10-25T13:00:00Z",` +
+		`"failed_logins_per_hour":[{"hour":"2026-10-25T10:00:00Z","count":3}],` +
+		`"denied_by_actor":[{"actor_id":"user-a","count":3},{"count":2}],` +
+		`"top_ips_high_critical":[{"source_ip":"203.0.113.5","count":3}]}`
+	if got := strings.TrimSpace(rec.Body.String()); got != want {
+		t.Errorf("body =\n%s\nwant\n%s", got, want)
+	}
+	if r.filter.Limit != application.StatsTop {
+		t.Errorf("top = %d, want %d", r.filter.Limit, application.StatsTop)
+	}
+}
+
+func TestSuspiciousStatsErrors(t *testing.T) {
+	tests := []struct {
+		name, query, bearer string
+		status              int
+	}{
+		{"no token", "", "", http.StatusUnauthorized},
+		{"no role", "", token(t, "viewer"), http.StatusForbidden},
+		{"invalid date", "?from=25-10-2026", token(t, jwtauth.RoleAdmin), http.StatusBadRequest},
+		{"injection", "?to=%27%20OR%201%3D1--", token(t, jwtauth.RoleAdmin), http.StatusBadRequest},
+		{"from after to", "?from=2026-10-25T13:00:00Z&to=2026-10-25T10:00:00Z", token(t, jwtauth.RoleAdmin), http.StatusBadRequest},
+		{"range too long", "?from=2026-01-01T00:00:00Z&to=2026-10-25T00:00:00Z", token(t, jwtauth.RoleAdmin), http.StatusBadRequest},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := get(t, newQueryRouter(&fakeReader{}), "/api/v1/stats/suspicious"+tt.query, tt.bearer)
+			if rec.Code != tt.status {
+				t.Fatalf("status = %d, want %d; body %s", rec.Code, tt.status, rec.Body)
+			}
+			decodeProblem(t, rec)
+		})
+	}
+	rec := get(t, newQueryRouter(&fakeReader{err: errors.New("pg down")}), "/api/v1/stats/suspicious", token(t, jwtauth.RoleAuditor))
+	if rec.Code != http.StatusInternalServerError || strings.Contains(rec.Body.String(), "pg down") {
+		t.Errorf("store failure: status %d body %s, want 500 without the cause", rec.Code, rec.Body)
 	}
 }

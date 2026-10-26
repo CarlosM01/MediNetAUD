@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/medinetcore/aud/internal/audit/domain"
 	"github.com/medinetcore/aud/internal/audit/ports"
 )
 
@@ -76,4 +78,57 @@ func (s *EventStore) ListEvents(ctx context.Context, f ports.EventFilter) ([]por
 		return nil, fmt.Errorf("list events: %w", err)
 	}
 	return events, nil
+}
+
+const (
+	failedLoginsPerHour = `SELECT date_trunc('hour', occurred_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' AS hour, count(*)
+		FROM audit_logs
+		WHERE event_type = 'auth.login_failed' AND occurred_at BETWEEN $1 AND $2
+		GROUP BY hour ORDER BY hour`
+	deniedByActor = `SELECT actor_id, count(*)
+		FROM audit_logs
+		WHERE event_type = 'access.denied' AND occurred_at BETWEEN $1 AND $2
+		GROUP BY actor_id ORDER BY count(*) DESC, actor_id NULLS LAST LIMIT $3`
+	topIPs = `SELECT host(source_ip) AS ip, count(*)
+		FROM audit_logs
+		WHERE severity >= $4 AND source_ip IS NOT NULL AND occurred_at BETWEEN $1 AND $2
+		GROUP BY ip ORDER BY count(*) DESC, ip LIMIT $3`
+)
+
+// SuspiciousStats implements ports.EventReader. The three aggregates read one snapshot.
+func (s *EventStore) SuspiciousStats(ctx context.Context, from, to time.Time, top int) (ports.SuspiciousStats, error) {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return ports.SuspiciousStats{}, fmt.Errorf("suspicious stats: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var stats ports.SuspiciousStats
+	rows, _ := tx.Query(ctx, failedLoginsPerHour, from, to)
+	stats.FailedLoginsPerHour, err = pgx.CollectRows(rows, pgx.RowToStructByPos[ports.HourCount])
+	if err != nil {
+		return ports.SuspiciousStats{}, fmt.Errorf("failed logins per hour: %w", err)
+	}
+	for i := range stats.FailedLoginsPerHour {
+		stats.FailedLoginsPerHour[i].Hour = stats.FailedLoginsPerHour[i].Hour.UTC()
+	}
+
+	rows, _ = tx.Query(ctx, deniedByActor, from, to, top)
+	stats.DeniedByActor, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (ports.ActorCount, error) {
+		var actor *string
+		var c ports.ActorCount
+		err := row.Scan(&actor, &c.Count)
+		c.ActorID = deref(actor)
+		return c, err
+	})
+	if err != nil {
+		return ports.SuspiciousStats{}, fmt.Errorf("denied by actor: %w", err)
+	}
+
+	rows, _ = tx.Query(ctx, topIPs, from, to, top, int16(domain.SeverityHigh))
+	stats.TopIPs, err = pgx.CollectRows(rows, pgx.RowToStructByPos[ports.IPCount])
+	if err != nil {
+		return ports.SuspiciousStats{}, fmt.Errorf("top ips: %w", err)
+	}
+	return stats, nil
 }

@@ -137,6 +137,58 @@ type listEventsOutput struct {
 	Body eventListBody
 }
 
+type statsInput struct {
+	From time.Time `query:"from" doc:"Start of the range on occurred_at, inclusive (RFC 3339). Default: to minus 7 days." example:"2026-10-25T00:00:00Z"`
+	To   time.Time `query:"to" doc:"End of the range on occurred_at, inclusive (RFC 3339). Default: now. The range may span at most 31 days." example:"2026-10-25T23:59:59Z"`
+}
+
+type hourCount struct {
+	Hour  time.Time `json:"hour" doc:"Start of the UTC hour." example:"2026-10-25T10:00:00Z"`
+	Count int64     `json:"count" example:"3"`
+}
+
+type actorCount struct {
+	ActorID string `json:"actor_id,omitempty" doc:"Absent for denied accesses without an actor." example:"user-77"`
+	Count   int64  `json:"count" example:"5"`
+}
+
+type ipCount struct {
+	SourceIP string `json:"source_ip" example:"203.0.113.5"`
+	Count    int64  `json:"count" example:"4"`
+}
+
+type statsBody struct {
+	From                time.Time    `json:"from" doc:"Start of the range actually used."`
+	To                  time.Time    `json:"to" doc:"End of the range actually used."`
+	FailedLoginsPerHour []hourCount  `json:"failed_logins_per_hour" doc:"auth.login_failed events per UTC hour, oldest first. Hours without events are omitted."`
+	DeniedByActor       []actorCount `json:"denied_by_actor" doc:"access.denied events per actor, most first (top 10)."`
+	TopIPs              []ipCount    `json:"top_ips_high_critical" doc:"Source IPs with the most HIGH or CRITICAL events, most first (top 10)."`
+}
+
+type statsOutput struct {
+	Body statsBody
+}
+
+func newStatsBody(r application.StatsReport) statsBody {
+	b := statsBody{
+		From:                r.From.UTC(),
+		To:                  r.To.UTC(),
+		FailedLoginsPerHour: make([]hourCount, len(r.FailedLoginsPerHour)),
+		DeniedByActor:       make([]actorCount, len(r.DeniedByActor)),
+		TopIPs:              make([]ipCount, len(r.TopIPs)),
+	}
+	for i, h := range r.FailedLoginsPerHour {
+		b.FailedLoginsPerHour[i] = hourCount{Hour: h.Hour.UTC(), Count: h.Count}
+	}
+	for i, a := range r.DeniedByActor {
+		b.DeniedByActor[i] = actorCount(a)
+	}
+	for i, ip := range r.TopIPs {
+		b.TopIPs[i] = ipCount{SourceIP: ip.IP, Count: ip.Count}
+	}
+	return b
+}
+
 // validationProblem turns a use case validation error into a 400 naming each query parameter.
 func validationProblem(err *domain.ValidationError) huma.StatusError {
 	details := make([]error, len(err.Fields))
@@ -198,5 +250,22 @@ func registerQuery(api huma.API, tokens *jwtauth.Verifier, q *application.Query)
 			}
 		}
 		return &listEventsOutput{Body: body}, nil
+	})
+
+	op = queryOperation("getSuspiciousStats", "/api/v1/stats/suspicious", "Suspicious activity report",
+		"Counts failed logins per hour, denied accesses per actor and the source IPs with the most "+
+			"HIGH or CRITICAL events within a range. Without from and to, the last 7 days are used.",
+		readerRoles, http.StatusBadRequest)
+	op.Middlewares = auth
+	huma.Register(api, op, func(ctx context.Context, in *statsInput) (*statsOutput, error) {
+		report, err := q.SuspiciousStats(ctx, application.StatsRequest{From: in.From, To: in.To})
+		var verr *domain.ValidationError
+		if errors.As(err, &verr) {
+			return nil, validationProblem(verr)
+		}
+		if err != nil {
+			return nil, huma.Error500InternalServerError("", err)
+		}
+		return &statsOutput{Body: newStatsBody(report)}, nil
 	})
 }

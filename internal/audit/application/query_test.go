@@ -30,6 +30,11 @@ func (f *fakeReader) ListEvents(_ context.Context, filter ports.EventFilter) ([]
 	return out, nil
 }
 
+func (f *fakeReader) SuspiciousStats(_ context.Context, from, to time.Time, top int) (ports.SuspiciousStats, error) {
+	f.got = ports.EventFilter{From: from, To: to, Limit: top}
+	return ports.SuspiciousStats{TopIPs: []ports.IPCount{{IP: "203.0.113.5", Count: 2}}}, nil
+}
+
 func newTestQuery(r ports.EventReader) *Query {
 	q := NewQuery(r)
 	q.now = func() time.Time { return testNow }
@@ -154,6 +159,38 @@ func TestListEventsAcceptsBoundaries(t *testing.T) {
 	} {
 		if _, err := newTestQuery(&fakeReader{}).ListEvents(context.Background(), req); err != nil {
 			t.Errorf("ListEvents(%+v) = %v, want nil", req, err)
+		}
+	}
+}
+
+func TestSuspiciousStatsUsesResolvedRange(t *testing.T) {
+	r := &fakeReader{}
+	from := testNow.Add(-3 * time.Hour)
+	report, err := newTestQuery(r).SuspiciousStats(context.Background(), StatsRequest{From: from})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.got.From.Equal(from) || !r.got.To.Equal(testNow) || r.got.Limit != StatsTop {
+		t.Errorf("reader got %v..%v top %d, want %v..now top %d", r.got.From, r.got.To, r.got.Limit, from, StatsTop)
+	}
+	if !report.From.Equal(from) || !report.To.Equal(testNow) || len(report.TopIPs) != 1 {
+		t.Errorf("report = %+v", report)
+	}
+}
+
+func TestSuspiciousStatsRejectsInvalidRange(t *testing.T) {
+	for _, req := range []StatsRequest{
+		{From: testNow, To: testNow.Add(-time.Second)},
+		{From: testNow.Add(-MaxQueryRange - time.Hour), To: testNow},
+	} {
+		r := &fakeReader{}
+		_, err := newTestQuery(r).SuspiciousStats(context.Background(), req)
+		var verr *domain.ValidationError
+		if !errors.As(err, &verr) {
+			t.Errorf("SuspiciousStats(%+v) = %v, want a validation error", req, err)
+		}
+		if r.got.Limit != 0 {
+			t.Error("reader was called for an invalid range")
 		}
 	}
 }

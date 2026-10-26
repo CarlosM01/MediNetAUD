@@ -73,6 +73,31 @@ type EventFilter struct {
 	Limit        int
 }
 
+// HourCount is how many events fell in one UTC hour.
+type HourCount struct {
+	Hour  time.Time
+	Count int64
+}
+
+// ActorCount is how many events one actor caused. ActorID is empty for events without actor.
+type ActorCount struct {
+	ActorID string
+	Count   int64
+}
+
+// IPCount is how many events came from one source IP.
+type IPCount struct {
+	IP    string
+	Count int64
+}
+
+// SuspiciousStats summarizes suspicious activity in a time range.
+type SuspiciousStats struct {
+	FailedLoginsPerHour []HourCount  // auth.login_failed per hour, oldest first, only non-empty hours
+	DeniedByActor       []ActorCount // access.denied per actor, most first, at most top
+	TopIPs              []IPCount    // HIGH or CRITICAL events per source IP, most first, at most top
+}
+
 // EventReader reads the append-only chain for the query API.
 type EventReader interface {
 	// FindEvent returns the event with eventID (a valid UUID) or ErrEventNotFound.
@@ -80,4 +105,7 @@ type EventReader interface {
 	// ListEvents returns at most f.Limit events matching f, newest first
 	// (occurred_at DESC, id DESC).
 	ListEvents(ctx context.Context, f EventFilter) ([]StoredEvent, error)
+	// SuspiciousStats aggregates events with from <= occurred_at <= to. Ties in the top lists
+	// are ordered by actor_id or IP.
+	SuspiciousStats(ctx context.Context, from, to time.Time, top int) (SuspiciousStats, error)
 }

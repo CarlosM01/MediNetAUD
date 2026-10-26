@@ -22,6 +22,8 @@ const (
 	// DefaultLimit and MaxLimit bound the events per page.
 	DefaultLimit = 50
 	MaxLimit     = 100
+	// StatsTop is how many actors and IPs the suspicious activity report ranks.
+	StatsTop = 10
 )
 
 // Query reads the audit log for auditors and administrators.
@@ -117,6 +119,31 @@ func (q *Query) ListEvents(ctx context.Context, req ListRequest) (EventPage, err
 		page.NextCursor = encodeCursor(ports.Cursor{OccurredAt: last.OccurredAt, ID: last.ID})
 	}
 	return page, nil
+}
+
+// StatsRequest is the range of a suspicious activity report. Zero values mean "not sent".
+type StatsRequest struct {
+	From, To time.Time
+}
+
+// StatsReport is the suspicious activity in [From, To].
+type StatsReport struct {
+	From, To time.Time
+	ports.SuspiciousStats
+}
+
+// SuspiciousStats counts failed logins per hour, denied accesses per actor and the IPs with
+// the most HIGH or CRITICAL events. The range follows the same rules as ListEvents.
+func (q *Query) SuspiciousStats(ctx context.Context, req StatsRequest) (StatsReport, error) {
+	from, to, errs := resolveRange(req.From, req.To, q.now())
+	if len(errs) > 0 {
+		return StatsReport{}, &domain.ValidationError{Fields: errs}
+	}
+	stats, err := q.events.SuspiciousStats(ctx, from, to, StatsTop)
+	if err != nil {
+		return StatsReport{}, err
+	}
+	return StatsReport{From: from, To: to, SuspiciousStats: stats}, nil
 }
 
 // resolveRange fills a missing bound from the other one (or from now) and checks that
