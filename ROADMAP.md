@@ -123,10 +123,15 @@ Los otros 11 grupos dependen de esto. Mientras no esté publicado, no pueden int
 ## Etapa 7: Informe técnico
 
 - [ ] **7.1 Diagramas.** Diagrama ER (`audit_logs`, `api_clients`) y diagrama de arquitectura hexagonal y de despliegue (EC2, contenedores, redes, SG).
+  _Avance:_ borrador en [docs/INFORME.md](docs/INFORME.md) con los tres diagramas en Mermaid; falta confirmar el de despliegue contra la EC2 real (5.5).
 - [ ] **7.2 ISO 27034.** Describir el ONF y el ANF del módulo y el nivel de confianza objetivo, y armar una tabla de **ASC** que vincule cada control con su evidencia (ej. "registros inmutables → roles de BD + trigger + hash chain → `migrations/0001…`, test X").
+  _Avance:_ ANF y tabla de 13 ASC en el borrador, con la evidencia verificada contra el código (tests de 6.2 incluidos); faltan el origen del ONF, el nivel de confianza objetivo y la evidencia de 6.1 (tests de `aud_app`), 6.3 (rate limit) y 5.5 (SG).
 - [ ] **7.3 Ciclo de vida seguro.** Explicar cómo se aplicó la seguridad en cada fase: requisitos, diseño, implementación, verificación (tests y SAST/SCA) y despliegue.
+  _Avance:_ tabla por fase en el borrador; verificación y despliegue dependen de la Etapa 6 y de 5.5/5.6.
 - [ ] **7.4 OWASP Top 10.** Una tabla con riesgo, cómo aplica al módulo, mitigación y evidencia. Destacar A09 (fallas de registro y monitoreo): este módulo ES la mitigación de A09 para todo MediNet-Core.
+  _Avance:_ tabla completa (edición 2021) en el borrador, con A09 destacado y A10 verificado (el código de producción no hace peticiones salientes); falta confirmar la edición con el profesor.
 - [ ] **7.5 Evidencias.** Capturas de `/docs`, del pipeline en verde, del Security Group, de `nmap`, del `UPDATE` rechazado y de la verificación de integridad.
+  _Avance:_ el `UPDATE`/`DELETE`/`TRUNCATE` rechazado y la verificación `ok` → `broken` ya están en [docs/evidencias/inmutabilidad-e-integridad.txt](docs/evidencias/inmutabilidad-e-integridad.txt) (entorno local); faltan `/docs`, el pipeline en verde, el SG y `nmap`, y repetir las dos primeras contra la EC2 en 6.4.
 
 ## Etapa 8: Cierre (checklist contra la rúbrica)
 
@@ -206,6 +211,8 @@ Decisiones que el código solo no explica. Antes de "arreglar" algo de esta list
 | Formato del JWT y claim de roles | Grupo 2 (IAM) | Pendiente. Supuesto provisorio: RS256, llave pública en PEM, claims `sub`, `exp` y `roles` (ver README) |
 | Dominio con TLS (Caddy) o solo IP pública | Grupo | Pendiente. Hoy el despliegue expone HTTP plano en `API_PORT`, así que los JWT viajan sin cifrar; con TLS, el Security Group abre 443 en vez de `API_PORT` |
 | Cuenta de AWS: AWS Academy o propia | Grupo | Pendiente. En AWS Academy, las credenciales del CD vencen con cada laboratorio y hay que renovarlas en GitHub Secrets |
+| Edición del OWASP Top 10 para el informe: 2021 o 2025 | Profesor | Pendiente. El borrador usa la 2021 |
+| ONF (ISO 27034): qué controles impone la asignatura y cuáles definió el módulo, y nivel de confianza objetivo | Grupo | Pendiente. Bloquea 7.2 |
 | Versión de Go | Grupo | Decidido: Go 1.26 (1.23 ya no recibe parches; ver Etapa 5) |
 | Acceso SSH del CD con el 22 restringido | Grupo | Decidido: el job abre el 22 solo para la IP de su runner y lo cierra al terminar |
 | Respuesta ante `event_id` repetido: `409` o `202` idempotente | Grupo | Decidido: `202` idempotente (ver `docs/CONTRATO_INGESTA.md`) |

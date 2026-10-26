@@ -1,0 +1,76 @@
+# Evidencia: inmutabilidad e integridad de audit_logs
+# Fecha: 2026-10-26T18:05:39Z · commit 2211455 · entorno local (docker compose)
+# Los secretos y tokens se omiten. Las contraseñas de BD se pasan por PGPASSWORD.
+
+## 1. Se ingieren 5 eventos firmados con HMAC (cliente lab-service, módulo LAB)
+POST /api/v1/events #1 -> 202
+POST /api/v1/events #2 -> 202
+POST /api/v1/events #3 -> 202
+POST /api/v1/events #4 -> 202
+POST /api/v1/events #5 -> 202
+
+$ psql -U aud_app -c 'SELECT id, event_type, severity, actor_id FROM audit_logs ORDER BY id'
+ id |    event_type     | severity | actor_id 
+----+-------------------+----------+----------
+  1 | auth.login_failed |        1 | user-101
+  2 | auth.login_failed |        1 | user-102
+  3 | auth.login_failed |        1 | user-103
+  4 | auth.login_failed |        1 | user-104
+  5 | auth.login_failed |        1 | user-105
+(5 rows)
+
+
+## 2. aud_app (rol de la API) no puede modificar ni borrar: falta el permiso
+
+$ psql -U aud_app -c 'UPDATE audit_logs SET severity = 0 WHERE id = 3'
+ERROR:  permission denied for table audit_logs
+
+$ psql -U aud_app -c 'DELETE FROM audit_logs WHERE id = 3'
+ERROR:  permission denied for table audit_logs
+
+$ psql -U aud_app -c 'TRUNCATE audit_logs'
+ERROR:  permission denied for table audit_logs
+
+## 3. aud_owner (dueño de la tabla) tampoco: lo detiene el trigger
+
+$ psql -U aud_owner -c 'UPDATE audit_logs SET severity = 0 WHERE id = 3'
+ERROR:  audit_logs is append-only: UPDATE is not allowed
+CONTEXT:  PL/pgSQL function audit_logs_reject_mutation() line 3 at RAISE
+
+$ psql -U aud_owner -c 'DELETE FROM audit_logs WHERE id = 3'
+ERROR:  audit_logs is append-only: DELETE is not allowed
+CONTEXT:  PL/pgSQL function audit_logs_reject_mutation() line 3 at RAISE
+
+$ psql -U aud_owner -c 'TRUNCATE audit_logs'
+ERROR:  audit_logs is append-only: TRUNCATE is not allowed
+CONTEXT:  PL/pgSQL function audit_logs_reject_mutation() line 3 at RAISE
+
+## 4. /integrity/verify sobre la cadena intacta
+
+$ curl /api/v1/integrity/verify -H "Authorization: Bearer <token auditor>"   # verify es solo para admin
+{"type":"about:blank","title":"Forbidden","status":403,"detail":"this operation requires one of the roles: admin"}
+
+HTTP 403
+
+$ curl /api/v1/integrity/verify -H "Authorization: Bearer <token admin>"
+{"status":"ok","checked":5,"from_id":1,"last_id":5,"last_hash":"b752758d940b986fbd8d813fa3af4ac163d241a401d442a7db26372dfe81bd42"}
+
+HTTP 200
+
+## 5. aud_owner desactiva el trigger y altera la fila 3 (manipulación con privilegios)
+
+$ psql -U aud_owner -c 'ALTER TABLE audit_logs DISABLE TRIGGER audit_logs_no_update_delete'
+ALTER TABLE
+
+$ psql -U aud_owner -c 'UPDATE audit_logs SET severity = 0 WHERE id = 3'
+UPDATE 1
+
+$ psql -U aud_owner -c 'ALTER TABLE audit_logs ENABLE TRIGGER audit_logs_no_update_delete'
+ALTER TABLE
+
+## 6. /integrity/verify detecta la alteración
+
+$ curl /api/v1/integrity/verify -H "Authorization: Bearer <token admin>"
+{"status":"broken","checked":3,"from_id":1,"first_broken_id":3}
+
+HTTP 200
