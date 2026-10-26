@@ -311,12 +311,22 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/Problem'
+          example:
+            type: about:blank
+            title: Request Entity Too Large
+            status: 413
+            detail: request body exceeds 65536 bytes
     UnsupportedMediaType:
       description: Content-Type is not application/json.
       content:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/Problem'
+          example:
+            type: about:blank
+            title: Unsupported Media Type
+            status: 415
+            detail: Content-Type must be application/json
     TooManyRequests:
       description: Client rate limit exceeded.
       headers:
@@ -326,12 +336,22 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/Problem'
+          example:
+            type: about:blank
+            title: Too Many Requests
+            status: 429
+            detail: rate limit exceeded
     InternalServerError:
       description: Unexpected AUD error. Retry with backoff.
       content:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/Problem'
+          example:
+            type: about:blank
+            title: Internal Server Error
+            status: 500
+            detail: internal error
     ServiceUnavailable:
       description: Internal queue full or service shutting down. Retry after Retry-After.
       headers:
@@ -341,6 +361,11 @@ components:
         application/problem+json:
           schema:
             $ref: '#/components/schemas/Problem'
+          example:
+            type: about:blank
+            title: Service Unavailable
+            status: 503
+            detail: event queue is full
   examples:
     LoginFailed:
       summary: Failed login reported by IAM

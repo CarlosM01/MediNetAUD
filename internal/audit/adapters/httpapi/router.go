@@ -30,5 +30,9 @@ func NewRouter(d Dependencies) http.Handler {
 	if d.Tokens != nil && d.Query != nil {
 		registerQuery(api, d.Tokens, d.Query)
 	}
+	specJSON, specYAML := specHandlers(api)
+	mux.HandleFunc("GET /openapi.json", specJSON)
+	mux.HandleFunc("GET /openapi.yaml", specYAML)
+	mux.HandleFunc("GET /docs", swaggerUI)
 	return mux
 }

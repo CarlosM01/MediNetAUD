@@ -28,6 +28,10 @@ Variables de la API: `DATABASE_URL` (obligatoria, rol `aud_app`), `AUD_SECRET_KE
 
 Los roles se crean **solo en el primer arranque**, con el volumen vacío. Si después cambian una contraseña en `.env`, no se aplica sola: hay que hacer `ALTER ROLE … PASSWORD …` como `postgres`, o, en desarrollo, borrar el volumen con `docker compose down -v`.
 
+## Documentación de la API
+
+`GET /docs` sirve Swagger UI sobre `GET /openapi.json` (también `/openapi.yaml`): un único documento OpenAPI 3.1 con la ingesta (tomada tal cual de [`docs/openapi-ingesta.yaml`](docs/openapi-ingesta.yaml), la fuente del contrato), la consulta (generada por huma desde el código) y `/health`, con los *security schemes* HMAC y Bearer, todos los códigos de respuesta y ejemplos. Los errores son RFC 7807 (`application/problem+json`).
+
 ## Consulta
 
 Solo para roles `auditor` o `admin`, con `Authorization: Bearer <jwt>` (ver "Tokens de consulta"). Sin token o con uno inválido responde `401`; con un token válido sin el rol, `403`.

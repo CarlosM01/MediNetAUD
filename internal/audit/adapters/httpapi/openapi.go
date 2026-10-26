@@ -25,6 +25,9 @@ func newAPI(mux *http.ServeMux) huma.API {
 	// No $schema field or Link header in responses: clients get exactly the documented body.
 	config.CreateHooks = nil
 	config.SchemasPath = ""
+	// The router serves the merged document and Swagger UI itself (spec.go, docs.go).
+	config.OpenAPIPath = ""
+	config.DocsPath = ""
 	config.Components.SecuritySchemes = map[string]*huma.SecurityScheme{
 		bearerScheme: {
 			Type:         "http",
