@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/base64"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -54,6 +56,47 @@ func TestLoadFromEnv(t *testing.T) {
 	}
 	if cfg.DatabaseURL != "postgres://aud_app:pw@localhost:5432/aud" || len(cfg.SecretKey) != 32 || cfg.QueueCapacity != 50 {
 		t.Errorf("cfg = %+v, want the database URL, a 32-byte key and capacity 50", cfg)
+	}
+}
+
+func TestLoadLeavesQueryAPIDisabledWithoutJWTKey(t *testing.T) {
+	setRequired(t)
+	t.Setenv("AUD_JWT_PUBLIC_KEY_FILE", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.JWTPublicKey != nil {
+		t.Errorf("JWTPublicKey = %q, want nil", cfg.JWTPublicKey)
+	}
+}
+
+func TestLoadReadsJWTSettings(t *testing.T) {
+	setRequired(t)
+	path := filepath.Join(t.TempDir(), "jwt-public.pem")
+	if err := os.WriteFile(path, []byte("PEM BYTES"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AUD_JWT_PUBLIC_KEY_FILE", path)
+	t.Setenv("AUD_JWT_ISSUER", "medinet-iam")
+	t.Setenv("AUD_JWT_AUDIENCE", "aud")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if string(cfg.JWTPublicKey) != "PEM BYTES" || cfg.JWTIssuer != "medinet-iam" || cfg.JWTAudience != "aud" {
+		t.Errorf("cfg = %+v, want the key file contents, issuer medinet-iam and audience aud", cfg)
+	}
+}
+
+func TestLoadRejectsUnreadableJWTKeyFile(t *testing.T) {
+	setRequired(t)
+	t.Setenv("AUD_JWT_PUBLIC_KEY_FILE", filepath.Join(t.TempDir(), "missing.pem"))
+
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() error = nil, want error for a missing AUD_JWT_PUBLIC_KEY_FILE")
 	}
 }
 

@@ -1,5 +1,7 @@
 # Local secrets: only .env.example is versioned
 .env
+/secrets/
+*.pem
 
 # Build output
 /bin/

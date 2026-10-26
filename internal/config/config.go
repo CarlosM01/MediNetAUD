@@ -21,6 +21,12 @@ type Config struct {
 	SecretKey []byte
 	// QueueCapacity is how many accepted submissions may wait for the writer.
 	QueueCapacity int
+	// JWTPublicKey verifies the bearer tokens of the query API (PEM, RS256). Nil leaves the
+	// query API disabled.
+	JWTPublicKey []byte
+	// JWTIssuer and JWTAudience, when set, must match the iss and aud claims.
+	JWTIssuer   string
+	JWTAudience string
 }
 
 // Load reads the configuration from the environment, applying defaults for unset values.
@@ -48,6 +54,16 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("invalid QUEUE_CAPACITY: must be a positive integer")
 	}
 	cfg.QueueCapacity = capacity
+
+	if path := os.Getenv("AUD_JWT_PUBLIC_KEY_FILE"); path != "" {
+		key, err := os.ReadFile(path)
+		if err != nil {
+			return Config{}, fmt.Errorf("invalid AUD_JWT_PUBLIC_KEY_FILE: %w", err)
+		}
+		cfg.JWTPublicKey = key
+	}
+	cfg.JWTIssuer = os.Getenv("AUD_JWT_ISSUER")
+	cfg.JWTAudience = os.Getenv("AUD_JWT_AUDIENCE")
 
 	return cfg, nil
 }

@@ -5,6 +5,7 @@ go 1.23.0
 toolchain go1.23.12
 
 require (
+	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/jackc/pgx/v5 v5.7.5
 	github.com/testcontainers/testcontainers-go v0.37.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.37.0
