@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -80,7 +81,7 @@ func TestThousandEventsReachTheChainInOrder(t *testing.T) {
 		t.Fatalf("drain queue: %v", err)
 	}
 
-	report, err := store.VerifyChain(ctx)
+	report, err := store.VerifyChain(ctx, 1, math.MaxInt64)
 	if err != nil {
 		t.Fatalf("VerifyChain: %v", err)
 	}

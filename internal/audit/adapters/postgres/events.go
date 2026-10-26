@@ -112,38 +112,49 @@ func (s *EventStore) append(ctx context.Context, records []domain.Record) (int, 
 	return inserted, nil
 }
 
-// ChainReport is the result of walking the hash chain.
-type ChainReport struct {
-	Checked       int64
-	OK            bool
-	FirstBrokenID int64 // id of the first row whose link or hash does not match; 0 when OK
-}
-
-// VerifyChain walks every record in id order, checking that each prev_hash points to the
-// previous record and that each hash matches the stored columns.
-func (s *EventStore) VerifyChain(ctx context.Context) (ChainReport, error) {
-	rows, err := s.pool.Query(ctx, "SELECT "+recordColumns+" FROM audit_logs ORDER BY id")
+// VerifyChain implements ports.EventReader. The first row of the range is linked to the
+// stored row just before it, so a deleted row is detected even at the start of the range.
+func (s *EventStore) VerifyChain(ctx context.Context, fromID, toID int64) (ports.ChainReport, error) {
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
-		return ChainReport{}, fmt.Errorf("read chain: %w", err)
+		return ports.ChainReport{}, fmt.Errorf("read chain: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	prev := domain.GenesisHash
+	var raw []byte
+	err = tx.QueryRow(ctx, "SELECT hash FROM audit_logs WHERE id < $1 ORDER BY id DESC LIMIT 1", fromID).Scan(&raw)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+	case err != nil:
+		return ports.ChainReport{}, fmt.Errorf("read chain: %w", err)
+	default:
+		if prev, err = toHash(raw); err != nil {
+			return ports.ChainReport{}, fmt.Errorf("read chain: %w", err)
+		}
+	}
+
+	rows, err := tx.Query(ctx, "SELECT "+recordColumns+" FROM audit_logs WHERE id BETWEEN $1 AND $2 ORDER BY id", fromID, toID)
+	if err != nil {
+		return ports.ChainReport{}, fmt.Errorf("read chain: %w", err)
 	}
 	defer rows.Close()
 
-	report := ChainReport{OK: true}
-	prev := domain.GenesisHash
+	report := ports.ChainReport{OK: true}
 	for rows.Next() {
 		id, r, err := scanRecord(rows)
 		if err != nil {
-			return ChainReport{}, fmt.Errorf("read chain: %w", err)
+			return ports.ChainReport{}, fmt.Errorf("read chain: %w", err)
 		}
 		report.Checked++
 		if r.PrevHash != prev || r.Hash != domain.ComputeHash(r.PrevHash, r) {
-			report.OK, report.FirstBrokenID = false, id
-			return report, nil
+			return ports.ChainReport{Checked: report.Checked, FirstBrokenID: id}, nil
 		}
 		prev = r.Hash
+		report.LastID, report.LastHash = id, r.Hash
 	}
 	if err := rows.Err(); err != nil {
-		return ChainReport{}, fmt.Errorf("read chain: %w", err)
+		return ports.ChainReport{}, fmt.Errorf("read chain: %w", err)
 	}
 	return report, nil
 }

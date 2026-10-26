@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -144,6 +145,44 @@ func (q *Query) SuspiciousStats(ctx context.Context, req StatsRequest) (StatsRep
 		return StatsReport{}, err
 	}
 	return StatsReport{From: from, To: to, SuspiciousStats: stats}, nil
+}
+
+// VerifyRequest is an id range of the chain. Zero means "from the first row" for FromID and
+// "to the last row" for ToID.
+type VerifyRequest struct {
+	FromID, ToID int64
+}
+
+// VerifyReport is the result of verifying [FromID, ToID]; ToID is 0 for an open range.
+type VerifyReport struct {
+	FromID, ToID int64
+	ports.ChainReport
+}
+
+// VerifyChain checks the hash chain over the requested id range.
+func (q *Query) VerifyChain(ctx context.Context, req VerifyRequest) (VerifyReport, error) {
+	var errs []domain.FieldError
+	switch {
+	case req.FromID < 0:
+		errs = append(errs, domain.FieldError{Field: "from_id", Message: "must be positive"})
+	case req.ToID < 0:
+		errs = append(errs, domain.FieldError{Field: "to_id", Message: "must be positive"})
+	case req.ToID > 0 && req.FromID > req.ToID:
+		errs = append(errs, domain.FieldError{Field: "from_id", Message: "must not be greater than to_id"})
+	}
+	if len(errs) > 0 {
+		return VerifyReport{}, &domain.ValidationError{Fields: errs}
+	}
+
+	from, to := max(req.FromID, 1), req.ToID
+	if to == 0 {
+		to = math.MaxInt64
+	}
+	report, err := q.events.VerifyChain(ctx, from, to)
+	if err != nil {
+		return VerifyReport{}, err
+	}
+	return VerifyReport{FromID: from, ToID: req.ToID, ChainReport: report}, nil
 }
 
 // resolveRange fills a missing bound from the other one (or from now) and checks that

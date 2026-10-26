@@ -98,6 +98,15 @@ type SuspiciousStats struct {
 	TopIPs              []IPCount    // HIGH or CRITICAL events per source IP, most first, at most top
 }
 
+// ChainReport is the result of walking the hash chain over an id range.
+type ChainReport struct {
+	Checked       int64
+	OK            bool
+	FirstBrokenID int64       // id of the first row whose link or hash does not match; 0 when OK
+	LastID        int64       // id of the last row checked when OK; 0 when the range is empty
+	LastHash      domain.Hash // hash of the row LastID
+}
+
 // EventReader reads the append-only chain for the query API.
 type EventReader interface {
 	// FindEvent returns the event with eventID (a valid UUID) or ErrEventNotFound.
@@ -108,4 +117,7 @@ type EventReader interface {
 	// SuspiciousStats aggregates events with from <= occurred_at <= to. Ties in the top lists
 	// are ordered by actor_id or IP.
 	SuspiciousStats(ctx context.Context, from, to time.Time, top int) (SuspiciousStats, error)
+	// VerifyChain walks the rows with fromID <= id <= toID in order, checking that each
+	// prev_hash is the hash of the previous stored row and that each hash matches its columns.
+	VerifyChain(ctx context.Context, fromID, toID int64) (ChainReport, error)
 }

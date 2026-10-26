@@ -35,6 +35,7 @@ Solo para roles `auditor` o `admin`, con `Authorization: Bearer <jwt>` (ver "Tok
 - `GET /api/v1/events/{event_id}`: un evento, con su posición (`id`) y sus hashes. `404` si no existe y `400` si el id no es un UUID.
 - `GET /api/v1/events`: lista del más nuevo al más antiguo. Filtros `event_type`, `severity`, `source_module`, `actor_id`, `from` y `to` (RFC 3339, inclusivos; por defecto los últimos 7 días, máximo 31). `limit` de 1 a 100 (50 por defecto). Para la página siguiente se pasa `cursor=<next_cursor>`; en la última página no viene `next_cursor`. Un parámetro inválido responde `400` con la lista de campos en `errors`.
 - `GET /api/v1/stats/suspicious?from&to`: logins fallidos por hora (UTC), accesos denegados por actor y las IPs con más eventos `HIGH` o `CRITICAL` (top 10), con las mismas reglas de rango.
+- `GET /api/v1/integrity/verify?from_id&to_id`: **solo `admin`**. Recorre la cadena en ese rango de `id` (por defecto, completa) y responde `ok` con el último `id` y su hash, o `broken` con el primer `id` donde se rompe (fila alterada o borrada).
 
 ## Clientes de ingesta
 

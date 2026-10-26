@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"sync"
 	"testing"
 	"time"
@@ -171,7 +172,7 @@ func TestVerifyChainDetectsTamperingByTheOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	report, err := store.VerifyChain(ctx)
+	report, err := store.VerifyChain(ctx, 1, math.MaxInt64)
 	if err != nil || !report.OK || report.Checked != 5 {
 		t.Fatalf("VerifyChain = %+v, %v; want 5 rows OK", report, err)
 	}
@@ -191,7 +192,7 @@ func TestVerifyChainDetectsTamperingByTheOwner(t *testing.T) {
 		}
 	}
 
-	report, err = store.VerifyChain(ctx)
+	report, err = store.VerifyChain(ctx, 1, math.MaxInt64)
 	if err != nil {
 		t.Fatal(err)
 	}

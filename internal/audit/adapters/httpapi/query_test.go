@@ -90,6 +90,18 @@ func (f *fakeReader) SuspiciousStats(_ context.Context, from, to time.Time, top 
 	}, nil
 }
 
+// VerifyChain reports the chain broken at id 3 when the range includes it.
+func (f *fakeReader) VerifyChain(_ context.Context, fromID, toID int64) (ports.ChainReport, error) {
+	f.filter = ports.EventFilter{After: &ports.Cursor{ID: fromID}, Limit: int(min(toID, 1<<30))}
+	if f.err != nil {
+		return ports.ChainReport{}, f.err
+	}
+	if fromID <= 3 && toID >= 3 {
+		return ports.ChainReport{Checked: 4 - fromID, FirstBrokenID: 3}, nil
+	}
+	return ports.ChainReport{OK: true, Checked: 2, LastID: 5, LastHash: domain.Hash{0xab}}, nil
+}
+
 func storedEvent() ports.StoredEvent {
 	occurred := time.Date(2026, 10, 25, 14, 3, 11, 123456000, time.UTC)
 	r := domain.Record{
@@ -434,5 +446,49 @@ func TestSuspiciousStatsErrors(t *testing.T) {
 	rec := get(t, newQueryRouter(&fakeReader{err: errors.New("pg down")}), "/api/v1/stats/suspicious", token(t, jwtauth.RoleAuditor))
 	if rec.Code != http.StatusInternalServerError || strings.Contains(rec.Body.String(), "pg down") {
 		t.Errorf("store failure: status %d body %s, want 500 without the cause", rec.Code, rec.Body)
+	}
+}
+
+func TestVerifyIntegrity(t *testing.T) {
+	admin := token(t, jwtauth.RoleAdmin)
+	tests := []struct {
+		query string
+		want  string
+	}{
+		{"?from_id=4&to_id=5", `{"status":"ok","checked":2,"from_id":4,"to_id":5,"last_id":5,"last_hash":"ab` + strings.Repeat("0", 62) + `"}`},
+		{"", `{"status":"broken","checked":3,"from_id":1,"first_broken_id":3}`},
+		{"?from_id=2", `{"status":"broken","checked":2,"from_id":2,"first_broken_id":3}`},
+	}
+	for _, tt := range tests {
+		rec := get(t, newQueryRouter(&fakeReader{}), "/api/v1/integrity/verify"+tt.query, admin)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d, want 200; body %s", tt.query, rec.Code, rec.Body)
+		}
+		if got := strings.TrimSpace(rec.Body.String()); got != tt.want {
+			t.Errorf("%s: body =\n%s\nwant\n%s", tt.query, got, tt.want)
+		}
+	}
+}
+
+func TestVerifyIntegrityErrors(t *testing.T) {
+	tests := []struct {
+		name, query, bearer string
+		status              int
+	}{
+		{"no token", "", "", http.StatusUnauthorized},
+		{"auditor is not enough", "", token(t, jwtauth.RoleAuditor), http.StatusForbidden},
+		{"from after to", "?from_id=5&to_id=4", token(t, jwtauth.RoleAdmin), http.StatusBadRequest},
+		{"zero id", "?from_id=0", token(t, jwtauth.RoleAdmin), http.StatusBadRequest},
+		{"not a number", "?to_id=abc", token(t, jwtauth.RoleAdmin), http.StatusBadRequest},
+		{"injection", "?from_id=1%20OR%201%3D1", token(t, jwtauth.RoleAdmin), http.StatusBadRequest},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := get(t, newQueryRouter(&fakeReader{}), "/api/v1/integrity/verify"+tt.query, tt.bearer)
+			if rec.Code != tt.status {
+				t.Fatalf("status = %d, want %d; body %s", rec.Code, tt.status, rec.Body)
+			}
+			decodeProblem(t, rec)
+		})
 	}
 }

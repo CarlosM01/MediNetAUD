@@ -189,6 +189,36 @@ func newStatsBody(r application.StatsReport) statsBody {
 	return b
 }
 
+type verifyInput struct {
+	FromID int64 `query:"from_id" minimum:"1" doc:"First id of the range (audit_logs.id). Default: the first event." example:"1"`
+	ToID   int64 `query:"to_id" minimum:"1" doc:"Last id of the range. Default: the last event." example:"5000"`
+}
+
+type verifyBody struct {
+	Status        string `json:"status" enum:"ok,broken" doc:"ok when every link and hash in the range matches."`
+	Checked       int64  `json:"checked" doc:"Rows verified, including the broken one."`
+	FromID        int64  `json:"from_id" doc:"First id of the range actually used."`
+	ToID          int64  `json:"to_id,omitempty" doc:"Last id of the range, when one was given."`
+	FirstBrokenID int64  `json:"first_broken_id,omitempty" doc:"First row whose prev_hash or hash does not match. Only when broken."`
+	LastID        int64  `json:"last_id,omitempty" doc:"Last row verified. Only when ok and the range is not empty."`
+	LastHash      string `json:"last_hash,omitempty" doc:"Hash of last_id (hex). Keeping it outside AUD lets a later check prove that rows up to last_id were not rewritten."`
+}
+
+type verifyOutput struct {
+	Body verifyBody
+}
+
+func newVerifyBody(r application.VerifyReport) verifyBody {
+	b := verifyBody{Status: "ok", Checked: r.Checked, FromID: r.FromID, ToID: r.ToID}
+	switch {
+	case !r.OK:
+		b.Status, b.FirstBrokenID = "broken", r.FirstBrokenID
+	case r.LastID > 0:
+		b.LastID, b.LastHash = r.LastID, hex.EncodeToString(r.LastHash[:])
+	}
+	return b
+}
+
 // validationProblem turns a use case validation error into a 400 naming each query parameter.
 func validationProblem(err *domain.ValidationError) huma.StatusError {
 	details := make([]error, len(err.Fields))
@@ -267,5 +297,23 @@ func registerQuery(api huma.API, tokens *jwtauth.Verifier, q *application.Query)
 			return nil, huma.Error500InternalServerError("", err)
 		}
 		return &statsOutput{Body: newStatsBody(report)}, nil
+	})
+
+	op = queryOperation("verifyIntegrity", "/api/v1/integrity/verify", "Verify the hash chain",
+		"Walks the hash chain over an id range and returns ok, or the first id where it breaks. "+
+			"A row breaks the chain when its stored columns no longer produce its hash, or when its "+
+			"prev_hash is not the hash of the previous stored row (an altered or deleted row).",
+		[]string{jwtauth.RoleAdmin}, http.StatusBadRequest)
+	op.Middlewares = auth
+	huma.Register(api, op, func(ctx context.Context, in *verifyInput) (*verifyOutput, error) {
+		report, err := q.VerifyChain(ctx, application.VerifyRequest{FromID: in.FromID, ToID: in.ToID})
+		var verr *domain.ValidationError
+		if errors.As(err, &verr) {
+			return nil, validationProblem(verr)
+		}
+		if err != nil {
+			return nil, huma.Error500InternalServerError("", err)
+		}
+		return &verifyOutput{Body: newVerifyBody(report)}, nil
 	})
 }

@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/medinetcore/aud/internal/audit/adapters/postgres/pgtest"
 	"github.com/medinetcore/aud/internal/audit/domain"
 	"github.com/medinetcore/aud/internal/audit/ports"
 )
@@ -241,4 +243,65 @@ func TestSuspiciousStats(t *testing.T) {
 	if len(top1.DeniedByActor) != 1 || len(top1.TopIPs) != 1 || len(top1.FailedLoginsPerHour) != 2 {
 		t.Errorf("top=1: %+v, want one actor, one IP and every hour", top1)
 	}
+}
+
+func TestVerifyChainRange(t *testing.T) {
+	db := pgtest.Start(t)
+	ctx := context.Background()
+	owner := pgtest.Pool(t, db.OwnerURL)
+	if _, err := owner.Exec(ctx, `INSERT INTO api_clients (client_id, module_code, secret_enc) VALUES ($1, 'IAM', '\x00')`, testClient); err != nil {
+		t.Fatal(err)
+	}
+	store := NewEventStore(pgtest.Pool(t, db.AppURL))
+	var recs []domain.Record
+	for i := 1; i <= 6; i++ {
+		recs = append(recs, record(t, i, nil))
+	}
+	if _, err := store.Append(ctx, recs); err != nil {
+		t.Fatal(err)
+	}
+	asOwner := func(sqls ...string) {
+		t.Helper()
+		for _, sql := range sqls {
+			if _, err := owner.Exec(ctx, sql); err != nil {
+				t.Fatalf("%s: %v", sql, err)
+			}
+		}
+	}
+
+	check := func(from, to int64, want ports.ChainReport) {
+		t.Helper()
+		got, err := store.VerifyChain(ctx, from, to)
+		if err != nil {
+			t.Fatalf("VerifyChain(%d, %d): %v", from, to, err)
+		}
+		if got.OK != want.OK || got.Checked != want.Checked || got.FirstBrokenID != want.FirstBrokenID || got.LastID != want.LastID {
+			t.Errorf("VerifyChain(%d, %d) = %+v, want %+v", from, to, got, want)
+		}
+		if got.OK && got.LastID > 0 {
+			var h []byte
+			if err := owner.QueryRow(ctx, "SELECT hash FROM audit_logs WHERE id = $1", got.LastID).Scan(&h); err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(h, got.LastHash[:]) {
+				t.Errorf("LastHash = %x, want the stored hash of id %d (%x)", got.LastHash, got.LastID, h)
+			}
+		}
+	}
+
+	check(1, 6, ports.ChainReport{OK: true, Checked: 6, LastID: 6})
+	check(3, 4, ports.ChainReport{OK: true, Checked: 2, LastID: 4})
+	check(5, 1000, ports.ChainReport{OK: true, Checked: 2, LastID: 6})
+	check(100, 200, ports.ChainReport{OK: true, Checked: 0})
+
+	// Altering row 3 breaks it but not the links after it: 4 still points to 3's stored hash.
+	asOwner("ALTER TABLE audit_logs DISABLE TRIGGER audit_logs_no_update_delete",
+		"UPDATE audit_logs SET actor_id = 'someone-else' WHERE id = 3")
+	check(1, 6, ports.ChainReport{OK: false, Checked: 3, FirstBrokenID: 3})
+	check(4, 6, ports.ChainReport{OK: true, Checked: 3, LastID: 6})
+
+	// Deleting row 5 breaks the link of row 6, even when the range starts at 6.
+	asOwner("DELETE FROM audit_logs WHERE id = 5")
+	check(6, 6, ports.ChainReport{OK: false, Checked: 1, FirstBrokenID: 6})
+	check(4, 6, ports.ChainReport{OK: false, Checked: 2, FirstBrokenID: 6})
 }

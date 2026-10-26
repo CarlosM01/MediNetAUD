@@ -35,6 +35,11 @@ func (f *fakeReader) SuspiciousStats(_ context.Context, from, to time.Time, top 
 	return ports.SuspiciousStats{TopIPs: []ports.IPCount{{IP: "203.0.113.5", Count: 2}}}, nil
 }
 
+func (f *fakeReader) VerifyChain(_ context.Context, fromID, toID int64) (ports.ChainReport, error) {
+	f.got = ports.EventFilter{After: &ports.Cursor{ID: fromID}, Limit: int(min(toID, 1<<30))}
+	return ports.ChainReport{OK: true, Checked: 3, LastID: 3}, nil
+}
+
 func newTestQuery(r ports.EventReader) *Query {
 	q := NewQuery(r)
 	q.now = func() time.Time { return testNow }
@@ -190,6 +195,45 @@ func TestSuspiciousStatsRejectsInvalidRange(t *testing.T) {
 			t.Errorf("SuspiciousStats(%+v) = %v, want a validation error", req, err)
 		}
 		if r.got.Limit != 0 {
+			t.Error("reader was called for an invalid range")
+		}
+	}
+}
+
+func TestVerifyChainRange(t *testing.T) {
+	tests := []struct {
+		req      VerifyRequest
+		from, to int64
+	}{
+		{VerifyRequest{}, 1, 1 << 30},
+		{VerifyRequest{FromID: 5}, 5, 1 << 30},
+		{VerifyRequest{ToID: 9}, 1, 9},
+		{VerifyRequest{FromID: 4, ToID: 4}, 4, 4},
+	}
+	for _, tt := range tests {
+		r := &fakeReader{}
+		report, err := newTestQuery(r).VerifyChain(context.Background(), tt.req)
+		if err != nil {
+			t.Fatalf("VerifyChain(%+v): %v", tt.req, err)
+		}
+		if r.got.After.ID != tt.from || int64(r.got.Limit) != tt.to {
+			t.Errorf("VerifyChain(%+v) walked %d..%d, want %d..%d", tt.req, r.got.After.ID, r.got.Limit, tt.from, tt.to)
+		}
+		if report.FromID != tt.from || report.ToID != tt.req.ToID || !report.OK {
+			t.Errorf("report = %+v", report)
+		}
+	}
+}
+
+func TestVerifyChainRejectsInvalidRange(t *testing.T) {
+	for _, req := range []VerifyRequest{{FromID: 5, ToID: 4}, {FromID: -1}, {ToID: -3}} {
+		r := &fakeReader{}
+		_, err := newTestQuery(r).VerifyChain(context.Background(), req)
+		var verr *domain.ValidationError
+		if !errors.As(err, &verr) {
+			t.Errorf("VerifyChain(%+v) = %v, want a validation error", req, err)
+		}
+		if r.got.After != nil {
 			t.Error("reader was called for an invalid range")
 		}
 	}
