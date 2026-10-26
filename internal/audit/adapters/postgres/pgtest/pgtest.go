@@ -17,6 +17,7 @@ import (
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 )
 
+// #nosec G101 -- throwaway credentials of a disposable test container.
 const (
 	image       = "postgres:17.6-alpine"
 	database    = "aud"
@@ -100,7 +101,7 @@ func migrate(ctx context.Context, t *testing.T, ownerURL, dir string) {
 	defer func() { _ = conn.Close(ctx) }()
 
 	for _, f := range files {
-		sql, err := os.ReadFile(f)
+		sql, err := os.ReadFile(f) // #nosec G304 -- migration files listed by the test itself.
 		if err != nil {
 			t.Fatalf("read %s: %v", f, err)
 		}

@@ -7,23 +7,78 @@ on:
 permissions:
   contents: read
 
+env:
+  # Scanners run at pinned versions: Go tools through the checksum database, trivy by image digest.
+  GOSEC: github.com/securego/gosec/v2/cmd/gosec@v2.30.0
+  GOVULNCHECK: golang.org/x/vuln/cmd/govulncheck@v1.9.0
+  TRIVY: aquasec/trivy:0.76.1@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c
+
 jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      - uses: golangci/golangci-lint-action@v8
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: v2.15.0
 
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
       - run: go test -race ./...
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: SAST (gosec, HIGH and above)
+        run: go run "$GOSEC" -severity high ./...
+      - name: SCA (govulncheck, any reachable vulnerability)
+        run: go run "$GOVULNCHECK" ./...
+
+  image:
+    needs: [lint, test, security]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build
+        run: |
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          docker build -t "$IMAGE:$GITHUB_SHA" .
+          docker build --target audctl -t "$IMAGE:audctl-$GITHUB_SHA" .
+      - name: Scan (trivy, HIGH and CRITICAL)
+        run: |
+          for ref in "$IMAGE:$GITHUB_SHA" "$IMAGE:audctl-$GITHUB_SHA"; do
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock "$TRIVY" \
+              image --exit-code 1 --severity HIGH,CRITICAL --no-progress "$ref"
+          done
+      - name: Push to GHCR
+        if: github.event_name == 'push'
+        env:
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$REGISTRY_TOKEN" | docker login ghcr.io -u "$REGISTRY_USER" --password-stdin
+          refs=("$IMAGE:$GITHUB_SHA" "$IMAGE:audctl-$GITHUB_SHA")
+          if [ "$GITHUB_REF" = refs/heads/main ]; then
+            docker tag "$IMAGE:$GITHUB_SHA" "$IMAGE:latest"
+            docker tag "$IMAGE:audctl-$GITHUB_SHA" "$IMAGE:audctl-latest"
+            refs+=("$IMAGE:latest" "$IMAGE:audctl-latest")
+          fi
+          for ref in "${refs[@]}"; do docker push "$ref"; done
+          docker logout ghcr.io
+

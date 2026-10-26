@@ -78,6 +78,7 @@ func canonical(r Record) []byte {
 			continue
 		}
 		buf = append(buf, 1)
+		// #nosec G115 -- fields are bounded far below 4 GiB (64 KiB payload, 1 GB Postgres text).
 		buf = binary.BigEndian.AppendUint32(buf, uint32(len(f)))
 		buf = append(buf, f...)
 	}

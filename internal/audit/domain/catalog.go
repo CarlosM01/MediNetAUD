@@ -22,7 +22,7 @@ var severityNames = [...]string{"INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL"}
 // ParseSeverity converts the contract name (uppercase) into a Severity.
 func ParseSeverity(name string) (Severity, error) {
 	if i := slices.Index(severityNames[:], name); i >= 0 {
-		return Severity(i), nil
+		return Severity(i), nil // #nosec G115 -- i indexes severityNames, so it is below 5.
 	}
 	return 0, fmt.Errorf("unknown severity %q", name)
 }

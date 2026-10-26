@@ -171,12 +171,15 @@ Decisiones que el código solo no explica. Antes de "arreglar" algo de esta list
 - `audctl` va en su propia imagen (`--target audctl`). Con los dos binarios, la imagen pesaba 30,15 MB y superaba los 30 MB de 5.1. Separada, además, la herramienta que usa `aud_owner` no queda dentro del contenedor del servicio.
 - La BD no publica puertos en `docker-compose.yml`. Para `go run` en local, `docker-compose.dev.yml` la publica en `127.0.0.1` y se activa con `COMPOSE_FILE` en el `.env` de desarrollo, nunca en el servidor.
 - La clave pública del JWT entra como *secret* de Compose. Si falta, `api` no arranca: en el contenedor la API de consulta no queda deshabilitada en silencio.
+- **Escáneres en CI:** `gosec -severity high`, `govulncheck` (falla con cualquier vulnerabilidad alcanzable) y `trivy` sobre las dos imágenes (HIGH y CRITICAL, también las que aún no tienen parche). Todos van con versión fija: los de Go por el *checksum database* y `trivy` por *digest*. Se probó con `pgx` v5.7.5 a propósito: `govulncheck` y `trivy` hacen fallar el pipeline.
+- Los 9 hallazgos HIGH de `gosec` eran falsos positivos (rutas que elige el operador, conversiones acotadas y credenciales de un contenedor de prueba). Quedan anotados con `#nosec` y el motivo en la misma línea.
+- Las *actions* están fijadas por SHA, con la versión en un comentario. No se usan *actions* de terceros para Docker ni para `trivy`: el CLI de Docker alcanza.
+- **Imágenes en GHCR:** `ghcr.io/<repo en minúsculas>:<sha>` y `:audctl-<sha>` en cada push; además `:latest` y `:audctl-latest` en `main`. Los PR solo construyen y escanean.
 
 ### Pendientes conocidos
 
 - Si la BD se cae, la búsqueda del cliente falla primero y los emisores reciben 500 (reintentable según el contrato), no el 503 que promete el README. Se resuelve en 6.3 con un caché o timeout, o corrigiendo el README.
 - La capacidad de la cola cuenta envíos, no eventos. Un error permanente no clasificado bloquea la cola. El apagado comparte un único plazo de 15 s.
-- Las actions de CI están fijadas por tag y no por SHA (queda para 5.3).
 
 ## Decisiones pendientes
 

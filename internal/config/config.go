@@ -56,7 +56,7 @@ func Load() (Config, error) {
 	cfg.QueueCapacity = capacity
 
 	if path := os.Getenv("AUD_JWT_PUBLIC_KEY_FILE"); path != "" {
-		key, err := os.ReadFile(path)
+		key, err := os.ReadFile(path) // #nosec G304 G703 -- the operator sets this path.
 		if err != nil {
 			return Config{}, fmt.Errorf("invalid AUD_JWT_PUBLIC_KEY_FILE: %w", err)
 		}

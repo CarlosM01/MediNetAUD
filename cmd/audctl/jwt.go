@@ -32,6 +32,8 @@ func runJWT(args []string, stdout io.Writer) error {
 
 // jwtKeygen writes a new key pair into dir, creating it if needed. It never overwrites
 // existing files and leaves no half-written pair behind.
+//
+// #nosec G304 G703 -- the operator chooses dir on their own machine.
 func jwtKeygen(dir string, stdout io.Writer) error {
 	privPath, pubPath := filepath.Join(dir, privateKeyFile), filepath.Join(dir, publicKeyFile)
 	for _, p := range []string{privPath, pubPath} {
@@ -58,6 +60,8 @@ func jwtKeygen(dir string, stdout io.Writer) error {
 }
 
 // writeNew creates path with data. It fails if path exists and removes a partial file.
+//
+// #nosec G304 G703 -- path comes from jwtKeygen, chosen by the operator.
 func writeNew(path string, data []byte, perm os.FileMode) error {
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
 	if err != nil {
