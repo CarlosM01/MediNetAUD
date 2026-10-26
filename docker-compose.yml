@@ -76,7 +76,7 @@ services:
     entrypoint:
       - migrate
       - -path=/migrations
-      - -database=postgres://aud_owner:${AUD_OWNER_PASSWORD}@db:5432/${POSTGRES_DB}?sslmode=disable
+      - -database=postgres://aud_owner:${AUD_OWNER_PASSWORD:?set AUD_OWNER_PASSWORD in .env}@db:5432/${POSTGRES_DB:?set POSTGRES_DB in .env}?sslmode=disable
     <<: *hardening
 
   # Manages ingest clients as aud_owner: docker compose run --rm audctl client create <id> <module>
@@ -91,7 +91,7 @@ services:
         condition: service_healthy
     environment:
       AUD_SECRET_KEY: ${AUD_SECRET_KEY:?set AUD_SECRET_KEY in .env}
-      AUD_ADMIN_DATABASE_URL: postgres://aud_owner:${AUD_OWNER_PASSWORD}@db:5432/${POSTGRES_DB}?sslmode=disable
+      AUD_ADMIN_DATABASE_URL: postgres://aud_owner:${AUD_OWNER_PASSWORD:?set AUD_OWNER_PASSWORD in .env}@db:5432/${POSTGRES_DB:?set POSTGRES_DB in .env}?sslmode=disable
     networks: [backend]
     <<: *hardening
 

@@ -54,7 +54,7 @@ El `.env` de producción lleva las mismas variables que `.env.example`, con valo
 
 ```sh
 AUD_IMAGE=ghcr.io/<owner-en-minúsculas>/<repo-en-minúsculas>
-AUD_TAG=latest          # el CD lo reemplaza por el SHA en cada despliegue
+AUD_TAG=latest          # tras cada despliegue exitoso, el CD escribe aquí el SHA desplegado
 API_PORT=8080
 ```
 
@@ -82,9 +82,14 @@ Las credenciales de AWS solo necesitan este permiso:
 
 ```json
 {
-  "Effect": "Allow",
-  "Action": ["ec2:AuthorizeSecurityGroupIngress", "ec2:RevokeSecurityGroupIngress"],
-  "Resource": "arn:aws:ec2:<región>:<cuenta>:security-group/<sg-id>"
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["ec2:AuthorizeSecurityGroupIngress", "ec2:RevokeSecurityGroupIngress"],
+      "Resource": "arn:aws:ec2:<región>:<cuenta>:security-group/<sg-id>"
+    }
+  ]
 }
 ```
 

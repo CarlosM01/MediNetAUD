@@ -186,6 +186,8 @@ Decisiones que el código solo no explica. Antes de "arreglar" algo de esta list
 
 - Si la BD se cae, la búsqueda del cliente falla primero y los emisores reciben 500 (reintentable según el contrato), no el 503 que promete el README. Se resuelve en 6.3 con un caché o timeout, o corrigiendo el README.
 - La capacidad de la cola cuenta envíos, no eventos. Un error permanente no clasificado bloquea la cola. El apagado comparte un único plazo de 15 s.
+- El CD no hace *rollback*: si `up --wait` falla, el job falla pero el contenedor nuevo queda en marcha. Para volver atrás, hay que poner el SHA anterior en `AUD_TAG` del `.env` del servidor y hacer `docker compose up -d api`. Si falla la migración, la API no se reinicia.
+- `trivy` descarga su base de vulnerabilidades en cada corrida, sin caché. Si el límite de descargas lo hace fallar, se puede cachear con `actions/cache`.
 
 ## Decisiones pendientes
 

@@ -98,7 +98,7 @@ jobs:
       contents: read
       packages: read
     env:
-      TARGET: ${{ vars.EC2_USER }}@${{ vars.EC2_HOST }}
+      TARGET: ${{ vars.EC2_USER || 'ubuntu' }}@${{ vars.EC2_HOST }}
       HEALTH_URL: http://${{ vars.EC2_HOST }}:${{ vars.API_PORT || '8080' }}/health
       SECURITY_GROUP: ${{ vars.EC2_SECURITY_GROUP_ID }}
       AWS_REGION: ${{ vars.AWS_REGION }}
@@ -138,13 +138,16 @@ jobs:
           REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # shellcheck disable=SC2029 # REGISTRY_USER and GITHUB_SHA expand on the runner on purpose.
-          # The token travels on stdin, never on a command line, and is removed after the pull.
-          echo "$REGISTRY_TOKEN" | ssh "$TARGET" "docker login ghcr.io -u '$REGISTRY_USER' --password-stdin"
-          # shellcheck disable=SC2029
-          ssh "$TARGET" "cd ~/aud && export AUD_TAG='$GITHUB_SHA' \
+          # One session: the token travels on stdin, never on a command line, and is removed at the end.
+          # After a successful restart, AUD_TAG in .env records the SHA, so manual compose commands
+          # on the server keep using the deployed image.
+          echo "$REGISTRY_TOKEN" | ssh "$TARGET" "docker login ghcr.io -u '$REGISTRY_USER' --password-stdin \
+            && cd ~/aud && export AUD_TAG='$GITHUB_SHA' \
             && docker compose pull api \
-            && docker compose run --rm migrate up \
-            && docker compose up -d --wait api; status=\$?; docker logout ghcr.io; exit \$status"
+            && docker compose run --rm -T migrate up \
+            && docker compose up -d --wait api \
+            && { grep -q '^AUD_TAG=' .env && sed -i 's/^AUD_TAG=.*/AUD_TAG=$GITHUB_SHA/' .env || echo 'AUD_TAG=$GITHUB_SHA' >> .env; }; \
+            status=\$?; docker logout ghcr.io; exit \$status"
       - name: Health check
         run: |
           curl --fail --silent --show-error --retry 10 --retry-delay 3 --retry-all-errors "$HEALTH_URL"
