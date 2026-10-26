@@ -121,6 +121,9 @@ func TestVerifyRejectsInvalidTokens(t *testing.T) {
 			"sub": "u", "iss": testIssuer, "aud": testAudience, "roles": roles,
 			"exp": testNow.Add(2 * time.Hour).Unix(), "nbf": testNow.Add(time.Hour).Unix(),
 		})},
+		{"without sub", signRS256(t, priv, jwt.MapClaims{
+			"iss": testIssuer, "aud": testAudience, "roles": roles, "exp": testNow.Add(time.Hour).Unix(),
+		})},
 		{"roles is not a string list", signRS256(t, priv, jwt.MapClaims{
 			"sub": "u", "iss": testIssuer, "aud": testAudience, "roles": "admin", "exp": testNow.Add(time.Hour).Unix(),
 		})},

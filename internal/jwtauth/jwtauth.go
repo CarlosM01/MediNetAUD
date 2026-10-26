@@ -27,7 +27,8 @@ const Leeway = 30 * time.Second
 const minKeyBits = 2048
 
 // ErrInvalidToken means the token cannot be trusted: malformed, badly signed, expired, not
-// yet valid, or for another issuer or audience. Callers answer 401 without telling which.
+// yet valid, without a subject, or for another issuer or audience. Callers answer 401
+// without telling which.
 var ErrInvalidToken = errors.New("invalid token")
 
 // Principal is the caller identified by a valid token.
@@ -93,6 +94,10 @@ func (v *Verifier) Verify(token string) (Principal, error) {
 	_, err := jwt.ParseWithClaims(token, &c, func(*jwt.Token) (any, error) { return v.key, nil }, opts...)
 	if err != nil {
 		return Principal{}, fmt.Errorf("%w: %w", ErrInvalidToken, err)
+	}
+	// Every query is attributed to a subject, so a token without one is useless.
+	if c.Subject == "" {
+		return Principal{}, fmt.Errorf("%w: missing sub claim", ErrInvalidToken)
 	}
 	return Principal{Subject: c.Subject, Roles: c.Roles}, nil
 }

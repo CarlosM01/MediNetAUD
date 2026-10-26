@@ -55,7 +55,7 @@ func run(args []string, stdout io.Writer) error {
 }
 
 func runClient(args []string, stdout io.Writer) error {
-	if len(args) < 2 {
+	if (args[0] != "create" || len(args) != 3) && (args[0] != "disable" || len(args) != 2) {
 		return errors.New(usage)
 	}
 

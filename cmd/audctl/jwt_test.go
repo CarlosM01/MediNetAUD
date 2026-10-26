@@ -64,6 +64,54 @@ func TestJWTKeygenNeverOverwrites(t *testing.T) {
 	}
 }
 
+func TestJWTKeygenLeavesNothingWhenPublicKeyExists(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, publicKeyFile), []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := run([]string{"jwt", "keygen", dir}, &bytes.Buffer{}); err == nil {
+		t.Fatal("keygen overwrote an existing public key")
+	}
+	if _, err := os.Stat(filepath.Join(dir, privateKeyFile)); !os.IsNotExist(err) {
+		t.Errorf("keygen left a private key without its public key (stat err = %v)", err)
+	}
+}
+
+func TestJWTKeygenCreatesDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "secrets")
+	if err := run([]string{"jwt", "keygen", dir}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("keygen into a missing directory: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, publicKeyFile)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestJWTMintTrimsRoles(t *testing.T) {
+	dir := t.TempDir()
+	if err := run([]string{"jwt", "keygen", dir}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	args := []string{"jwt", "mint", "-key", filepath.Join(dir, privateKeyFile), "-sub", "u", "-roles", " auditor, admin ,"}
+	if err := run(args, &out); err != nil {
+		t.Fatalf("mint: %v", err)
+	}
+	pub, _ := os.ReadFile(filepath.Join(dir, publicKeyFile))
+	v, err := jwtauth.NewVerifier(pub, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := v.Verify(strings.TrimSpace(out.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Roles) != 2 || !p.HasAnyRole(jwtauth.RoleAuditor) || !p.HasAnyRole(jwtauth.RoleAdmin) {
+		t.Errorf("Roles = %q, want [auditor admin]", p.Roles)
+	}
+}
+
 func TestUsageErrors(t *testing.T) {
 	tests := [][]string{
 		nil,
@@ -72,6 +120,12 @@ func TestUsageErrors(t *testing.T) {
 		{"jwt", "mint", "-sub", "x"},
 		{"jwt", "mint", "-key", "k.pem"},
 		{"jwt", "mint", "-bogus"},
+		{"jwt", "mint", "-key", "k.pem", "-sub", "x"},
+		{"jwt", "mint", "-key", "k.pem", "-sub", "x", "-roles", " , "},
+		{"jwt", "mint", "-key", "k.pem", "-sub", "x", "-roles", "auditor", "-ttl", "0s"},
+		{"jwt", "mint", "-key", "k.pem", "-sub", "x", "-roles", "auditor", "-ttl", "-1h"},
+		{"client", "create", "only-id"},
+		{"client", "disable"},
 		{"tokens", "list"},
 		{"client"},
 	}

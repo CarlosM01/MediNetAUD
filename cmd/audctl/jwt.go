@@ -30,33 +30,47 @@ func runJWT(args []string, stdout io.Writer) error {
 	}
 }
 
-// jwtKeygen writes a new key pair into dir. It never overwrites existing files.
+// jwtKeygen writes a new key pair into dir, creating it if needed. It never overwrites
+// existing files and leaves no half-written pair behind.
 func jwtKeygen(dir string, stdout io.Writer) error {
+	privPath, pubPath := filepath.Join(dir, privateKeyFile), filepath.Join(dir, publicKeyFile)
+	for _, p := range []string{privPath, pubPath} {
+		if _, err := os.Lstat(p); err == nil {
+			return fmt.Errorf("%s already exists", p)
+		}
+	}
 	privPEM, pubPEM, err := jwtauth.GenerateKeyPair()
 	if err != nil {
 		return err
 	}
-	privPath, pubPath := filepath.Join(dir, privateKeyFile), filepath.Join(dir, publicKeyFile)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
 	if err := writeNew(privPath, privPEM, 0o600); err != nil {
 		return err
 	}
 	if err := writeNew(pubPath, pubPEM, 0o644); err != nil {
+		_ = os.Remove(privPath)
 		return err
 	}
 	_, err = fmt.Fprintf(stdout, "private key: %s (keep it private)\npublic key:  %s (AUD_JWT_PUBLIC_KEY_FILE)\n", privPath, pubPath)
 	return err
 }
 
+// writeNew creates path with data. It fails if path exists and removes a partial file.
 func writeNew(path string, data []byte, perm os.FileMode) error {
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
 	if err != nil {
 		return err
 	}
-	if _, err := f.Write(data); err != nil {
-		_ = f.Close()
-		return err
+	_, err = f.Write(data)
+	if cerr := f.Close(); err == nil {
+		err = cerr
 	}
-	return f.Close()
+	if err != nil {
+		_ = os.Remove(path)
+	}
+	return err
 }
 
 // jwtMint prints a signed token.
@@ -72,7 +86,8 @@ func jwtMint(args []string, stdout io.Writer) error {
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("%w\n%s", err, usage)
 	}
-	if *keyPath == "" || *subject == "" || fs.NArg() > 0 {
+	roleList := splitRoles(*roles)
+	if *keyPath == "" || *subject == "" || len(roleList) == 0 || *ttl <= 0 || fs.NArg() > 0 {
 		return errors.New(usage)
 	}
 
@@ -84,14 +99,21 @@ func jwtMint(args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	var roleList []string
-	if *roles != "" {
-		roleList = strings.Split(*roles, ",")
-	}
 	token, err := iss.Mint(*subject, roleList, *ttl)
 	if err != nil {
 		return err
 	}
 	_, err = fmt.Fprintln(stdout, token)
 	return err
+}
+
+// splitRoles parses a comma-separated list, trimming spaces and dropping empty entries.
+func splitRoles(s string) []string {
+	var roles []string
+	for _, r := range strings.Split(s, ",") {
+		if r = strings.TrimSpace(r); r != "" {
+			roles = append(roles, r)
+		}
+	}
+	return roles
 }

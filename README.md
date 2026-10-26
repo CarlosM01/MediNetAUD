@@ -46,12 +46,12 @@ El secreto se guarda cifrado con AES-256-GCM (`api_clients.secret_enc`), ligado 
 La API de consulta exige un JWT `Bearer` firmado con RS256 y con el claim `roles` (`auditor` o `admin`). Mientras IAM no emita tokens reales, `audctl` hace de emisor local:
 
 ```sh
-go run ./cmd/audctl jwt keygen ./secrets      # jwt-private.pem (600) y jwt-public.pem; nunca sobrescribe
+go run ./cmd/audctl jwt keygen ./secrets      # crea ./secrets con jwt-private.pem (600) y jwt-public.pem; nunca sobrescribe
 export AUD_JWT_PUBLIC_KEY_FILE=./secrets/jwt-public.pem
 go run ./cmd/audctl jwt mint -key ./secrets/jwt-private.pem -sub ana -roles auditor -ttl 1h
 ```
 
-Variables: `AUD_JWT_PUBLIC_KEY_FILE` (sin ella, la API de consulta queda deshabilitada), `AUD_JWT_ISSUER` y `AUD_JWT_AUDIENCE` (opcionales; si se definen, el token debe traer ese `iss` y ese `aud`, y `jwt mint` los usa por defecto). Se aceptan 30 s de desfase de reloj en `exp`.
+Variables: `AUD_JWT_PUBLIC_KEY_FILE` (sin ella, la API de consulta queda deshabilitada), `AUD_JWT_ISSUER` y `AUD_JWT_AUDIENCE` (opcionales; si se definen, el token debe traer ese `iss` y ese `aud`, y `jwt mint` los usa por defecto). El token debe traer `sub` y `exp`; se aceptan 30 s de desfase de reloj.
 
 ## Pruebas
 
