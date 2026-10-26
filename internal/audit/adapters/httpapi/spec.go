@@ -129,7 +129,7 @@ func exampleProblem(code string, op *huma.Operation, roles []string) problem {
 	p.Title = http.StatusText(p.Status)
 	switch p.Status {
 	case http.StatusBadRequest:
-		p.Detail = "invalid query parameters"
+		p.Detail = "validation failed"
 		field := "id"
 		if len(op.Parameters) > 0 {
 			field = op.Parameters[0].Name

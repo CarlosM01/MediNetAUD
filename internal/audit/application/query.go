@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/medinetcore/aud/internal/audit/domain"
 	"github.com/medinetcore/aud/internal/audit/ports"
@@ -25,6 +26,9 @@ const (
 	MaxLimit     = 100
 	// StatsTop is how many actors and IPs the suspicious activity report ranks.
 	StatsTop = 10
+
+	// Times must fall in years 1..9999: PostgreSQL and RFC 3339 output both handle them.
+	minYear, maxYear = 1, 9999
 )
 
 // Query reads the audit log for auditors and administrators.
@@ -67,6 +71,9 @@ func (q *Query) ListEvents(ctx context.Context, req ListRequest) (EventPage, err
 	fail := func(field, msg string) { errs = append(errs, domain.FieldError{Field: field, Message: msg}) }
 
 	f := ports.EventFilter{EventType: req.EventType, SourceModule: req.SourceModule, ActorID: req.ActorID}
+	if req.ActorID != "" && (!utf8.ValidString(req.ActorID) || strings.ContainsRune(req.ActorID, 0)) {
+		fail("actor_id", "must be UTF-8 text without NUL characters")
+	}
 	if req.EventType != "" && !slices.Contains(domain.EventTypes(), req.EventType) {
 		fail("event_type", "must be an event type of the catalog")
 	}
@@ -198,6 +205,10 @@ func resolveRange(from, to, now time.Time) (time.Time, time.Time, []domain.Field
 		from = to.Add(-DefaultQueryRange)
 	}
 	switch {
+	case !inYears(from):
+		return from, to, []domain.FieldError{{Field: "from", Message: fmt.Sprintf("must be between the years %d and %d", minYear, maxYear)}}
+	case !inYears(to):
+		return from, to, []domain.FieldError{{Field: "to", Message: fmt.Sprintf("must be between the years %d and %d", minYear, maxYear)}}
 	case from.After(to):
 		return from, to, []domain.FieldError{{Field: "from", Message: "must not be after to"}}
 	case to.Sub(from) > MaxQueryRange:
@@ -228,5 +239,13 @@ func decodeCursor(s string) (ports.Cursor, error) {
 	if err != nil || n < 1 {
 		return ports.Cursor{}, fmt.Errorf("malformed cursor id")
 	}
-	return ports.Cursor{OccurredAt: time.UnixMicro(us).UTC(), ID: n}, nil
+	t := time.UnixMicro(us).UTC()
+	if !inYears(t) {
+		return ports.Cursor{}, fmt.Errorf("cursor time out of range")
+	}
+	return ports.Cursor{OccurredAt: t, ID: n}, nil
+}
+
+func inYears(t time.Time) bool {
+	return t.Year() >= minYear && t.Year() <= maxYear
 }

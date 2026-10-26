@@ -139,6 +139,11 @@ func TestListEventsRejectsInvalidRequests(t *testing.T) {
 		{"cursor not base64", ListRequest{Cursor: "%%%"}, "cursor"},
 		{"cursor wrong shape", ListRequest{Cursor: "aGVsbG8"}, "cursor"},
 		{"cursor negative id", ListRequest{Cursor: encodeCursor(ports.Cursor{OccurredAt: testNow, ID: -1})}, "cursor"},
+		{"cursor time out of range", ListRequest{Cursor: "LTMwMDAwMDAwMDAwMDAwMDAwMC41"}, "cursor"},
+		{"actor_id with NUL", ListRequest{ActorID: "a\x00b"}, "actor_id"},
+		{"actor_id invalid UTF-8", ListRequest{ActorID: "\xff\xfe"}, "actor_id"},
+		{"to before year 1", ListRequest{To: time.Date(0, 1, 5, 0, 0, 0, 0, time.UTC)}, "from"},
+		{"to after year 9999", ListRequest{From: time.Date(9999, 12, 31, 0, 0, 0, 0, time.UTC), To: time.Date(10000, 1, 2, 0, 0, 0, 0, time.UTC)}, "to"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -236,5 +241,14 @@ func TestVerifyChainRejectsInvalidRange(t *testing.T) {
 		if r.got.After != nil {
 			t.Error("reader was called for an invalid range")
 		}
+	}
+}
+
+func TestSuspiciousStatsRejectsYearsOutOfRange(t *testing.T) {
+	r := &fakeReader{}
+	_, err := newTestQuery(r).SuspiciousStats(context.Background(), StatsRequest{To: time.Date(0, 1, 5, 0, 0, 0, 0, time.UTC)})
+	var verr *domain.ValidationError
+	if !errors.As(err, &verr) || r.got.Limit != 0 {
+		t.Fatalf("err = %v, reader called = %v; want a validation error before the store", err, r.got.Limit != 0)
 	}
 }

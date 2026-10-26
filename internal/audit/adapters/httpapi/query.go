@@ -225,7 +225,7 @@ func validationProblem(err *domain.ValidationError) huma.StatusError {
 	for i, f := range err.Fields {
 		details[i] = &huma.ErrorDetail{Location: "query." + f.Field, Message: f.Message}
 	}
-	return huma.Error400BadRequest("invalid query parameters", details...)
+	return huma.Error400BadRequest("validation failed", details...)
 }
 
 // registerQuery registers the query operations. Every one needs a bearer token.

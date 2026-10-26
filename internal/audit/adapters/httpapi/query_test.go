@@ -375,6 +375,11 @@ func TestListEventsRejectsInvalidParameters(t *testing.T) {
 		{"limit=-5", "limit"},
 		{"cursor=not-a-cursor", "cursor"},
 		{"cursor=%27%20OR%201%3D1--", "cursor"},
+		{"cursor=LTMwMDAwMDAwMDAwMDAwMDAwMC41", "cursor"},
+		{"actor_id=%00", "actor_id"},
+		{"actor_id=a%00b", "actor_id"},
+		{"actor_id=%FF%FE", "actor_id"},
+		{"actor_id=%C3%28", "actor_id"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.query, func(t *testing.T) {
@@ -433,6 +438,7 @@ func TestSuspiciousStatsErrors(t *testing.T) {
 		{"injection", "?to=%27%20OR%201%3D1--", token(t, jwtauth.RoleAdmin), http.StatusBadRequest},
 		{"from after to", "?from=2026-10-25T13:00:00Z&to=2026-10-25T10:00:00Z", token(t, jwtauth.RoleAdmin), http.StatusBadRequest},
 		{"range too long", "?from=2026-01-01T00:00:00Z&to=2026-10-25T00:00:00Z", token(t, jwtauth.RoleAdmin), http.StatusBadRequest},
+		{"year before 1", "?to=0000-01-05T00:00:00Z", token(t, jwtauth.RoleAdmin), http.StatusBadRequest},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
