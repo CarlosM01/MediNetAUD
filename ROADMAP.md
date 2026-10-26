@@ -129,6 +129,49 @@ Los otros 11 grupos dependen de esto. Mientras no esté publicado, no pueden int
 
 ---
 
+## Decisiones de diseño tomadas
+
+Decisiones que el código solo no explica. Antes de "arreglar" algo de esta lista, revisen por qué se hizo así.
+
+### Etapa 1: Esqueleto y base de datos
+
+- Los roles `aud_owner` y `aud_app` se crean en `deploy/initdb/01-roles.sh`, con contraseñas del `.env`. La migración solo otorga permisos. El script corre una sola vez, cuando el volumen está vacío.
+- La carpeta `adapters/http` se llama `adapters/httpapi` para no tapar el paquete `net/http`.
+- La tabla `source_modules` es el catálogo de módulos. La FK compuesta `(client_id, source_module) -> api_clients` impide que un cliente emita eventos en nombre de otro módulo.
+- `UNIQUE(prev_hash)` impide que la cadena se bifurque. Además del trigger de `UPDATE`/`DELETE`, hay uno para `TRUNCATE`.
+- `golang-migrate` corre desde el perfil `tools` de Compose; no hace falta instalarlo.
+- El path del módulo `github.com/medinetcore/aud` es provisorio hasta que exista el repo en GitHub.
+
+### Etapa 3: Ingesta
+
+- La ingesta usa handlers de `net/http` (sin huma), porque el middleware HMAC necesita el body crudo y los errores siguen el formato del contrato (`errors[{field,message}]`).
+- **Serialización canónica:** campos con prefijo de largo en orden fijo (`NULL` distinto de vacío), y `occurred_at`/`received_at` en UTC truncados a microsegundos (la precisión de `timestamptz`).
+- **Hash con las formas de Postgres:** el `payload` se hashea como `jsonb::text` y la IP como `host(inet)`, ambos obtenidos dentro de la transacción de inserción. Así `/integrity/verify` puede recalcular el hash desde la fila. Ejemplo: Go imprime `::102:304` y Postgres `::1.2.3.4`; hashear la forma de Go rompía la cadena.
+- Antes del 202 el `payload` se re-codifica en Go (llaves ordenadas, números tal cual) y se limita a rango `float64`, profundidad 32, sin `NUL` y sin números de más de 16383 decimales. Así `jsonb` nunca rechaza un evento ya aceptado (`1e-20000` pasaba `ParseFloat` y después fallaba en la BD).
+- El secreto de cada cliente se guarda cifrado con AES-256-GCM, con el `client_id` como dato adicional.
+- Los errores de la BD de clase SQLSTATE 22/23 descartan ese evento con un log `ERROR`. Cualquier otro error se reintenta sin límite, así que la cola se llena y los emisores reciben 503.
+- Versiones fijadas para Go 1.23: `pgx v5.7.5`, `testcontainers v0.37.0`, `grpc-gateway v2.16.0`. Sin fijarlas, `go mod tidy` trae versiones que exigen Go más nuevo. `golangci-lint` v2.1.6 corre con su imagen de Docker.
+
+### Etapa 4: Consulta y Swagger
+
+- `huma v2.35.0` es la última versión compatible con Go 1.23 (2.36+ exigen Go 1.24). Corre con `humago` sobre el mismo `ServeMux`.
+- Los errores de huma se convierten al mismo formato RFC 7807 del contrato, y el 422 de huma se responde como 400.
+- JWT con `golang-jwt/jwt/v5` v5.3.1 y `WithValidMethods(["RS256"])`, para rechazar `alg: none` y la confusión HS256 con clave pública. Formato provisorio hasta acordarlo con IAM (0.4): clave pública en un archivo PEM, roles en el claim `roles: [...]` y `iss`/`aud` opcionales. Token ausente o inválido → 401; token válido sin el rol → 403.
+- El *issuer stub* local es `audctl jwt keygen|mint`.
+- `{id}` en `GET /events/{id}` es el `event_id` público (UUID). Las respuestas también traen el `id` interno de secuencia.
+- Las rutas de consulta solo se registran si `AUD_JWT_PUBLIC_KEY_FILE` está definido (falla cerrado).
+- `GET /events`: el rango por defecto es de 7 días y el máximo de 31.
+- `/integrity/verify` recorre un rango de ids dentro de una transacción de solo lectura `REPEATABLE READ`, y enlaza la primera fila con la fila guardada anterior.
+- Hay un único OpenAPI 3.1 en `/openapi.json` y `/openapi.yaml`: junta las operaciones de huma con `docs/openapi-ingesta.yaml`, que es la fuente de la ingesta. Swagger UI 5.17.14 se sirve en `/docs` con SRI.
+
+### Pendientes conocidos
+
+- `.env.example` no trae `DATABASE_URL`, `AUD_SECRET_KEY` ni las variables `AUD_JWT_*`.
+- Etapa 4: falta una verificación independiente de la autenticación JWT antes de marcar los pasos 4.1 a 4.6.
+- Si la BD se cae, la búsqueda del cliente falla primero y los emisores reciben 500 (reintentable según el contrato), no el 503 que promete el README. Se resuelve en 6.3 con un caché o timeout, o corrigiendo el README.
+- La capacidad de la cola cuenta envíos, no eventos. Un error permanente no clasificado bloquea la cola. El apagado comparte un único plazo de 15 s.
+- Las actions de CI están fijadas por tag y no por SHA (queda para 5.3).
+
 ## Decisiones pendientes
 
 | Tema | Con quién | Estado |
