@@ -10,6 +10,7 @@ Go 1.26 o superior, Docker con Compose y `psql`.
 
 ```sh
 cp .env.example .env              # reemplazar cada change-me
+echo 'COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml' >> .env   # publica la BD en 127.0.0.1, solo en desarrollo
 docker compose up -d --wait db    # Postgres; crea los roles aud_owner y aud_app
 docker compose run --rm migrate up
 export DATABASE_URL="postgres://aud_app:<AUD_APP_PASSWORD>@localhost:<DB_PORT>/<POSTGRES_DB>?sslmode=disable"
@@ -19,6 +20,26 @@ curl localhost:8080/health        # {"status":"ok"}
 ```
 
 Variables de la API: `DATABASE_URL` (obligatoria, rol `aud_app`), `AUD_SECRET_KEY` (obligatoria, base64 de 32 bytes), `HTTP_ADDR` (`:8080`), `LOG_LEVEL` (`info`) y `QUEUE_CAPACITY` (`1024` envíos en espera).
+
+## Contenedores
+
+El `Dockerfile` produce dos imágenes sobre `alpine`, ambas con el usuario `app` (uid 10001): `api` (el *target* por defecto, unos 21 MB, con `HEALTHCHECK` sobre `/health`) y `audctl` (`--target audctl`), separada para que la herramienta de administración nunca corra dentro del contenedor del servicio.
+
+```sh
+go run ./cmd/audctl jwt keygen ./secrets          # la API necesita ./secrets/jwt-public.pem
+docker compose build
+docker compose up -d --wait db
+docker compose run --rm migrate up
+docker compose up -d --wait api                   # http://localhost:8080/docs
+docker compose run --rm audctl client create lab-service LAB
+```
+
+`docker-compose.yml` es el mismo para desarrollo y servidor:
+
+- **Redes:** `db` solo está en `backend` (`internal: true`), sin puertos publicados y sin salida a internet. `api` está en `backend` y en `edge`, y publica `API_PORT` (`8080`).
+- **API endurecida:** `read_only: true`, `cap_drop: [ALL]` y `no-new-privileges`. `stop_grace_period` es de 20 s, para que el vaciado de la cola (15 s) no se corte con `SIGKILL`.
+- **Configuración:** todo sale del `.env`. Compose arma la `DATABASE_URL` de la API con `AUD_APP_PASSWORD` y el host `db`, e ignora la del `.env`, que es para `go run`. Por eso las contraseñas deben ser seguras dentro de una URL (`openssl rand -hex 24`). La clave pública del JWT se monta como *secret* desde `AUD_JWT_PUBLIC_KEY_FILE` (por defecto `./secrets/jwt-public.pem`); si no existe, `api` no arranca.
+- **Imágenes:** `AUD_IMAGE` (`medinetaud`) y `AUD_TAG` (`dev`) eligen la imagen de `api`; la de `audctl` es `AUD_IMAGE:audctl-AUD_TAG`.
 
 ## Ingesta
 

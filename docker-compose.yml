@@ -1,15 +1,29 @@
-# Local development stack. Every value comes from .env (see .env.example).
+# AUD stack. Every value comes from .env (see .env.example); nothing secret lives in this file.
+# The database is only reachable on the internal "backend" network and publishes no port.
+# For local development, docker-compose.dev.yml adds a loopback-only port for the database.
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+
 services:
   db:
     image: postgres:17.6-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
       AUD_OWNER_PASSWORD: ${AUD_OWNER_PASSWORD:?set AUD_OWNER_PASSWORD in .env}
       AUD_APP_PASSWORD: ${AUD_APP_PASSWORD:?set AUD_APP_PASSWORD in .env}
-    ports:
-      - "127.0.0.1:${DB_PORT:-5432}:5432"
+    networks: [backend]
     volumes:
       - db-data:/var/lib/postgresql/data
       - ./deploy/initdb:/docker-entrypoint-initdb.d:ro
@@ -20,6 +34,34 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    logging: *logging
+
+  api:
+    image: ${AUD_IMAGE:-medinetaud}:${AUD_TAG:-dev}
+    build:
+      context: .
+      target: api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Connects as aud_app (INSERT and SELECT only). Passwords must be URL-safe (e.g. openssl rand -hex 24).
+      DATABASE_URL: postgres://aud_app:${AUD_APP_PASSWORD:?set AUD_APP_PASSWORD in .env}@db:5432/${POSTGRES_DB:?set POSTGRES_DB in .env}?sslmode=disable
+      AUD_SECRET_KEY: ${AUD_SECRET_KEY:?set AUD_SECRET_KEY in .env}
+      AUD_JWT_PUBLIC_KEY_FILE: /run/secrets/jwt_public_key
+      AUD_JWT_ISSUER: ${AUD_JWT_ISSUER:-}
+      AUD_JWT_AUDIENCE: ${AUD_JWT_AUDIENCE:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      QUEUE_CAPACITY: ${QUEUE_CAPACITY:-1024}
+    secrets: [jwt_public_key]
+    ports:
+      - "${API_PORT:-8080}:8080"
+    networks: [backend, edge]
+    # Longer than the service's 15 s shutdown, so SIGKILL never cuts the queue drain short.
+    stop_grace_period: 20s
+    <<: *hardening
+    logging: *logging
 
   # Runs golang-migrate as aud_owner: docker compose run --rm migrate up
   migrate:
@@ -28,12 +70,40 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    networks: [backend]
     volumes:
       - ./migrations:/migrations:ro
     entrypoint:
       - migrate
       - -path=/migrations
       - -database=postgres://aud_owner:${AUD_OWNER_PASSWORD}@db:5432/${POSTGRES_DB}?sslmode=disable
+    <<: *hardening
+
+  # Manages ingest clients as aud_owner: docker compose run --rm audctl client create <id> <module>
+  audctl:
+    image: ${AUD_IMAGE:-medinetaud}:audctl-${AUD_TAG:-dev}
+    build:
+      context: .
+      target: audctl
+    profiles: ["tools"]
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      AUD_SECRET_KEY: ${AUD_SECRET_KEY:?set AUD_SECRET_KEY in .env}
+      AUD_ADMIN_DATABASE_URL: postgres://aud_owner:${AUD_OWNER_PASSWORD}@db:5432/${POSTGRES_DB}?sslmode=disable
+    networks: [backend]
+    <<: *hardening
+
+secrets:
+  jwt_public_key:
+    # Public key that verifies the query API tokens (see "Tokens de consulta" in the README).
+    file: ${AUD_JWT_PUBLIC_KEY_FILE:-./secrets/jwt-public.pem}
+
+networks:
+  backend:
+    internal: true
+  edge: {}
 
 volumes:
   db-data:

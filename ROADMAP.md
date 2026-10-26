@@ -168,6 +168,9 @@ Decisiones que el código solo no explica. Antes de "arreglar" algo de esta list
 ### Etapa 5: Contenedores, CI/CD y AWS
 
 - **Go 1.26 en vez de 1.23.** Go 1.23 dejó de recibir parches en agosto de 2025, y `govulncheck` encontró 13 vulnerabilidades alcanzables (entre ellas GO-2026-5004, una inyección SQL en `pgx`). Las versiones corregidas de `pgx` y `golang.org/x/*` exigen Go 1.26. Con 1.23, el escaneo de 5.3 no podía quedar en verde.
+- `audctl` va en su propia imagen (`--target audctl`). Con los dos binarios, la imagen pesaba 30,15 MB y superaba los 30 MB de 5.1. Separada, además, la herramienta que usa `aud_owner` no queda dentro del contenedor del servicio.
+- La BD no publica puertos en `docker-compose.yml`. Para `go run` en local, `docker-compose.dev.yml` la publica en `127.0.0.1` y se activa con `COMPOSE_FILE` en el `.env` de desarrollo, nunca en el servidor.
+- La clave pública del JWT entra como *secret* de Compose. Si falta, `api` no arranca: en el contenedor la API de consulta no queda deshabilitada en silencio.
 
 ### Pendientes conocidos
 

@@ -1,0 +1,11 @@
+# Local development only: publishes the database on loopback so `go run ./cmd/api` and psql can
+# reach it. Enable it with COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml in .env;
+# never on a server.
+services:
+  db:
+    ports:
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
+    networks: [backend, dev]
+
+networks:
+  dev: {}
