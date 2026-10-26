@@ -77,16 +77,17 @@ Los otros 11 grupos dependen de esto. Mientras no esté publicado, no pueden int
 
 ## Etapa 4: Consulta y Swagger
 
-- [ ] **4.1 Middleware JWT.** Validar firma, `exp` y roles (`auditor` y `admin`). Mientras IAM no esté listo, usar un *issuer stub* local.
+- [x] **4.1 Middleware JWT.** Validar firma, `exp` y roles (`auditor` y `admin`). Mientras IAM no esté listo, usar un *issuer stub* local.
   _Listo cuando:_ hay tests de token válido, expirado, con firma incorrecta y sin rol.
-- [ ] **4.2 `GET /events`.** Filtros `event_type`, `severity`, `from`, `to`, `actor_id` y `source_module`; paginación keyset con cursor `(occurred_at, id)`; `limit` máximo de 100; `from <= to` y un rango máximo de días.
+- [x] **4.2 `GET /events`.** Filtros `event_type`, `severity`, `from`, `to`, `actor_id` y `source_module`; paginación keyset con cursor `(occurred_at, id)`; `limit` máximo de 100; `from <= to` y un rango máximo de días.
   _Listo cuando:_ los tests cubren cada filtro, la combinación de filtros y los parámetros maliciosos (`' OR 1=1--`, fechas inválidas), todos con respuesta 400 o un resultado correcto, nunca 500.
-- [ ] **4.3 `GET /events/{id}`.** Devuelve 404 si no existe y 400 si el id no es válido.
-- [ ] **4.4 `GET /stats/suspicious`.** Devuelve logins fallidos por hora, accesos denegados por actor y top IPs por eventos HIGH o CRITICAL dentro de un rango.
+- [x] **4.3 `GET /events/{id}`.** Devuelve 404 si no existe y 400 si el id no es válido.
+- [x] **4.4 `GET /stats/suspicious`.** Devuelve logins fallidos por hora, accesos denegados por actor y top IPs por eventos HIGH o CRITICAL dentro de un rango.
   _Listo cuando:_ con datos de prueba, los números cuadran con un `SELECT` hecho a mano.
-- [ ] **4.5 `GET /integrity/verify`.** Solo para `admin`. Recorre la cadena en un rango y devuelve `ok` o el primer id donde se rompe.
+- [x] **4.5 `GET /integrity/verify`.** Solo para `admin`. Recorre la cadena en un rango y devuelve `ok` o el primer id donde se rompe.
 - [ ] **4.6 Swagger completo** (huma v2 en `/docs`): cada endpoint con descripción, parámetros, esquemas, ejemplos, **todos** los códigos de respuesta y los *security schemes* (HMAC y Bearer). Los errores van en formato RFC 7807.
   _Listo cuando:_ alguien de otro grupo puede usar la API solo con `/docs`.
+  _Avance:_ `/docs` (Swagger UI sobre `/openapi.json`) documenta ingesta, consulta y `/health` con ambos *security schemes*, todos los códigos y ejemplos, y pasa el linter de Redocly; falta que alguien de otro grupo lo pruebe.
 
 ## Etapa 5: Contenedores, CI/CD y AWS
 
@@ -177,6 +178,6 @@ Decisiones que el código solo no explica. Antes de "arreglar" algo de esta list
 | Tema | Con quién | Estado |
 |---|---|---|
 | Fecha de entrega | Profesor | Pendiente |
-| Formato del JWT y claim de roles | Grupo 2 (IAM) | Pendiente |
+| Formato del JWT y claim de roles | Grupo 2 (IAM) | Pendiente. Supuesto provisorio: RS256, llave pública en PEM, claims `sub`, `exp` y `roles` (ver README) |
 | Dominio con TLS (Caddy) o solo IP pública | Grupo | Pendiente |
 | Respuesta ante `event_id` repetido: `409` o `202` idempotente | Grupo | Decidido: `202` idempotente (ver `docs/CONTRATO_INGESTA.md`) |
