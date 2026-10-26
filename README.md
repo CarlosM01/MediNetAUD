@@ -41,6 +41,8 @@ docker compose run --rm audctl client create lab-service LAB
 - **Configuración:** todo sale del `.env`. Compose arma la `DATABASE_URL` de la API con `AUD_APP_PASSWORD` y el host `db`, e ignora la del `.env`, que es para `go run`. Por eso las contraseñas deben ser seguras dentro de una URL (`openssl rand -hex 24`). La clave pública del JWT se monta como *secret* desde `AUD_JWT_PUBLIC_KEY_FILE` (por defecto `./secrets/jwt-public.pem`); si no existe, `api` no arranca.
 - **Imágenes:** `AUD_IMAGE` (`medinetaud`) y `AUD_TAG` (`dev`) eligen la imagen de `api`; la de `audctl` es `AUD_IMAGE:audctl-AUD_TAG`.
 
+El despliegue en EC2 y el CD están en [docs/DESPLIEGUE.md](docs/DESPLIEGUE.md). El pipeline (`.github/workflows/ci.yml`) corre `lint`, `test` y `security` (`gosec` y `govulncheck`) en cada push y PR. El job `image` construye las dos imágenes, las escanea con `trivy` y las publica en GHCR. En `main`, el job `deploy` las despliega.
+
 ## Ingesta
 
 `POST /api/v1/events` y `POST /api/v1/events/batch`, firmados con HMAC, según el [contrato](docs/CONTRATO_INGESTA.md). La API valida, responde `202` y encola; un único writer guarda los eventos en orden dentro de la cadena de hashes. Si la base de datos se cae, el writer reintenta y la cola se llena: los emisores reciben `503` con `Retry-After` en vez de perder eventos. Al apagarse (`SIGTERM`) deja de aceptar peticiones y vacía la cola antes de salir.

@@ -91,17 +91,21 @@ Los otros 11 grupos dependen de esto. Mientras no esté publicado, no pueden int
 
 ## Etapa 5: Contenedores, CI/CD y AWS
 
-- [ ] **5.1 Dockerfile.** Multi-stage: compilar en `golang:1.26-alpine` con `CGO_ENABLED=0 -trimpath -ldflags="-s -w"`, y correr en `alpine` con un usuario `app` (uid 10001) y `USER app`. Agregar `HEALTHCHECK` y `.dockerignore`.
+- [x] **5.1 Dockerfile.** Multi-stage: compilar en `golang:1.26-alpine` con `CGO_ENABLED=0 -trimpath -ldflags="-s -w"`, y correr en `alpine` con un usuario `app` (uid 10001) y `USER app`. Agregar `HEALTHCHECK` y `.dockerignore`.
   _Listo cuando:_ `docker run … id` muestra uid 10001 y la imagen pesa menos de 30 MB.
-- [ ] **5.2 Compose endurecido.** Separar las redes: `backend` y `db` en una red `internal: true`, con la BD **sin** puertos publicados. Usar un volumen nombrado para la BD. En la API: `read_only: true`, `cap_drop: [ALL]` y `security_opt: [no-new-privileges:true]`. Toda la config sale del `.env`.
+- [x] **5.2 Compose endurecido.** Separar las redes: `backend` y `db` en una red `internal: true`, con la BD **sin** puertos publicados. Usar un volumen nombrado para la BD. En la API: `read_only: true`, `cap_drop: [ALL]` y `security_opt: [no-new-privileges:true]`. Toda la config sale del `.env`.
   _Listo cuando:_ `docker compose up` deja todo sano y `grep` no encuentra credenciales en el repo.
 - [ ] **5.3 Seguridad en CI.** Agregar `gosec` (SAST), `govulncheck` (SCA) y `trivy image`, de modo que el pipeline falle ante hallazgos HIGH o CRITICAL.
   _Listo cuando:_ una dependencia vulnerable introducida a propósito hace fallar el pipeline. Después hay que revertirla.
+  _Avance:_ en local, con `pgx` v5.7.5, `govulncheck` y `trivy` fallan y `gosec` falla sin las anotaciones; falta verlo en GitHub Actions.
 - [ ] **5.4 Build y push.** Publicar la imagen en GHCR (o ECR) con el tag `${{ github.sha }}`, más `latest` en `main`.
+  _Avance:_ job `image` listo (también publica `audctl-<sha>`); falta el primer push a GitHub.
 - [ ] **5.5 EC2.** Crear una instancia t3.micro con Docker instalado. Security Group: 80/443 (o solo el puerto de la API) abiertos al mundo, 22 **solo** desde las IPs del grupo, y 5432 **nunca** abierto. El `.env` queda en el servidor con permisos `600`.
   _Listo cuando:_ `nmap` desde fuera muestra solo los puertos permitidos.
+  _Avance:_ guía en [docs/DESPLIEGUE.md](docs/DESPLIEGUE.md) y *user data* en `deploy/ec2/user-data.sh`; falta crear la instancia (requiere la cuenta de AWS del grupo).
 - [ ] **5.6 CD.** Un job en `main` hace SSH a EC2, ejecuta `docker compose pull && docker compose up -d`, aplica las migraciones y hace un health check que **falla el job** si no responde 200. Las credenciales SSH van en los *GitHub Secrets*.
   _Listo cuando:_ un commit en `main` aparece desplegado en EC2 con el tag del SHA, sin que nadie toque el servidor.
+  _Avance:_ job `deploy` listo; se simuló en local contra un registro propio (pull, migraciones, `up --wait`, health check y tag del SHA). Falta la EC2 y los secretos.
 
 ## Etapa 6: Endurecimiento y pruebas de seguridad
 
@@ -175,6 +179,8 @@ Decisiones que el código solo no explica. Antes de "arreglar" algo de esta list
 - Los 9 hallazgos HIGH de `gosec` eran falsos positivos (rutas que elige el operador, conversiones acotadas y credenciales de un contenedor de prueba). Quedan anotados con `#nosec` y el motivo en la misma línea.
 - Las *actions* están fijadas por SHA, con la versión en un comentario. No se usan *actions* de terceros para Docker ni para `trivy`: el CLI de Docker alcanza.
 - **Imágenes en GHCR:** `ghcr.io/<repo en minúsculas>:<sha>` y `:audctl-<sha>` en cada push; además `:latest` y `:audctl-latest` en `main`. Los PR solo construyen y escanean.
+- **SSH del CD:** el 22 solo admite las IPs del grupo, y los runners de GitHub cambian de IP. Por eso el job `deploy` agrega la IP de su runner al Security Group, hace el SSH y la quita al final, aunque el job falle. Las credenciales de AWS solo tienen permiso para eso. La rúbrica no exige SSH; esta forma cumple a la vez 5.5 y 5.6.
+- El CD copia solo `docker-compose.yml`, `deploy/` y `migrations/`: el servidor no tiene el código. El token de GHCR viaja por stdin y se borra después del `pull`. La llave del host va fijada en `EC2_KNOWN_HOSTS`, no se acepta la primera que aparezca.
 
 ### Pendientes conocidos
 

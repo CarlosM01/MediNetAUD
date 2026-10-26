@@ -82,3 +82,77 @@ jobs:
           for ref in "${refs[@]}"; do docker push "$ref"; done
           docker logout ghcr.io
 
+  # Deploys main to EC2 once the host is configured (docs/DESPLIEGUE.md). Port 22 only admits the
+  # group's IPs, so the job opens it for this runner's IP and closes it again, even on failure.
+  # Variables: EC2_HOST, EC2_USER, API_PORT, AWS_REGION, EC2_SECURITY_GROUP_ID.
+  # Secrets: EC2_SSH_KEY, EC2_KNOWN_HOSTS, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN.
+  deploy:
+    needs: image
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.EC2_HOST != ''
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: read
+    env:
+      TARGET: ${{ vars.EC2_USER }}@${{ vars.EC2_HOST }}
+      HEALTH_URL: http://${{ vars.EC2_HOST }}:${{ vars.API_PORT || '8080' }}/health
+      SECURITY_GROUP: ${{ vars.EC2_SECURITY_GROUP_ID }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Open SSH for this runner
+        run: |
+          cidr="$(curl -fsS https://checkip.amazonaws.com)/32"
+          rule="IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=$cidr,Description=ci-deploy-$GITHUB_RUN_ID}]"
+          if out=$(aws ec2 authorize-security-group-ingress --group-id "$SECURITY_GROUP" --ip-permissions "$rule" 2>&1); then
+            echo "RUNNER_CIDR=$cidr" >> "$GITHUB_ENV"
+          elif grep -q InvalidPermission.Duplicate <<<"$out"; then
+            echo "$cidr is already allowed; that rule is not ours, so it stays"
+          else
+            echo "$out"; exit 1
+          fi
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.EC2_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy && chmod 600 ~/.ssh/id_deploy
+          # Pinned host keys: the job refuses to talk to a host it cannot authenticate.
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          printf 'Host *\n  IdentityFile ~/.ssh/id_deploy\n  StrictHostKeyChecking yes\n  BatchMode yes\n' > ~/.ssh/config
+      - name: Copy the Compose bundle
+        run: |
+          ssh "$TARGET" 'mkdir -p ~/aud && rm -rf ~/aud/deploy ~/aud/migrations'
+          tar czf - docker-compose.yml deploy migrations | ssh "$TARGET" 'tar xzf - -C ~/aud'
+      - name: Pull, migrate and restart
+        env:
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # shellcheck disable=SC2029 # REGISTRY_USER and GITHUB_SHA expand on the runner on purpose.
+          # The token travels on stdin, never on a command line, and is removed after the pull.
+          echo "$REGISTRY_TOKEN" | ssh "$TARGET" "docker login ghcr.io -u '$REGISTRY_USER' --password-stdin"
+          # shellcheck disable=SC2029
+          ssh "$TARGET" "cd ~/aud && export AUD_TAG='$GITHUB_SHA' \
+            && docker compose pull api \
+            && docker compose run --rm migrate up \
+            && docker compose up -d --wait api; status=\$?; docker logout ghcr.io; exit \$status"
+      - name: Health check
+        run: |
+          curl --fail --silent --show-error --retry 10 --retry-delay 3 --retry-all-errors "$HEALTH_URL"
+          running=$(ssh "$TARGET" 'cd ~/aud && docker inspect --format "{{.Config.Image}}" "$(docker compose ps -q api)"')
+          echo "running: $running"
+          case "$running" in *":$GITHUB_SHA") ;; *) echo "api is not running $GITHUB_SHA"; exit 1 ;; esac
+      - name: Close SSH for this runner
+        if: always() && env.RUNNER_CIDR != ''
+        run: |
+          aws ec2 revoke-security-group-ingress --group-id "$SECURITY_GROUP" \
+            --ip-permissions "IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=$RUNNER_CIDR}]"
